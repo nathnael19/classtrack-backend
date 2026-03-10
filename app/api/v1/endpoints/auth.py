@@ -5,6 +5,8 @@ from datetime import timedelta
 
 from ....db.session import get_db
 from ....core import security
+from ....core.config import settings
+
 from ....models.user import User
 from ....schemas.user import UserCreate, UserOut
 from ....schemas.token import Token
@@ -38,7 +40,7 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
