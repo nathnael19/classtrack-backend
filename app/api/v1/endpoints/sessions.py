@@ -65,3 +65,48 @@ def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
+
+@router.get("/active-lecturer", response_model=ClassSessionOut)
+def get_active_lecturer_session(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the most recently started session for the lecturer that is still "active"
+    (i.e., not manually stopped and within time bounds).
+    """
+    from datetime import datetime
+    now = datetime.utcnow()
+    
+    session = db.query(ClassSession).join(Course).filter(
+        Course.lecturer_id == current_user.id,
+        ClassSession.start_time <= now,
+        ClassSession.end_time >= now
+    ).order_by(ClassSession.start_time.desc()).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="No active session found")
+    return session
+
+@router.patch("/{session_id}/stop", response_model=ClassSessionOut)
+def stop_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Manually end a session by setting its end_time to now.
+    """
+    from datetime import datetime
+    session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # Verify ownership
+    if session.course.lecturer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    session.end_time = datetime.utcnow()
+    db.commit()
+    db.refresh(session)
+    return session
