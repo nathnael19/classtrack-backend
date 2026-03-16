@@ -15,7 +15,7 @@ def get_courses(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(Course).all()
+    return db.query(Course).filter(Course.lecturer_id == current_user.id).all()
 
 @router.post("/", response_model=CourseOut, status_code=status.HTTP_201_CREATED)
 def create_course(
