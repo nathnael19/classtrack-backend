@@ -27,3 +27,8 @@ class RecentSessionSummary(BaseModel):
     total: int
     rate: str
     classroom: Optional[str] = None
+class SessionContext(BaseModel):
+    last_course: str
+    success_rate: str
+    total_scans: int
+    outliers: int
