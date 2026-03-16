@@ -6,6 +6,7 @@ class UserBase(BaseModel):
     name: str
     email: EmailStr
     role: UserRole
+    student_id: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
