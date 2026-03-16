@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import List
+from sqlalchemy import func, or_
+from typing import List, Optional
 from datetime import datetime, timedelta
 
 from ....db.session import get_db
 from ....models.attendance import Attendance
+from ....models.room import Room
 from ....models.class_session import ClassSession
 from ....models.course import Course
 from ....models.user import User
@@ -185,16 +186,35 @@ def get_recent_sessions(
 @router.get("/sessions-report", response_model=List[RecentSessionSummary])
 def get_sessions_report(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    course_id: Optional[int] = Query(None),
+    q: Optional[str] = Query(None)
 ):
-    sessions = db.query(ClassSession).join(Course).filter(
+    query = db.query(ClassSession).join(Course).filter(
         Course.lecturer_id == current_user.id
-    ).order_by(ClassSession.start_time.desc()).all()
+    )
+
+    if course_id:
+        query = query.filter(ClassSession.course_id == course_id)
+    
+    if q:
+        query = query.filter(
+            or_(
+                Course.name.ilike(f"%{q}%"),
+                Course.code.ilike(f"%{q}%"),
+                ClassSession.room.ilike(f"%{q}%")
+            )
+        )
+
+    sessions = query.order_by(ClassSession.start_time.desc()).all()
     
     result = []
     for s in sessions:
         present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        total_count = 100 # Mock capacity
+        # Fallback to capacity from Room model if available, else 100
+        room_obj = db.query(Room).filter(Room.name == s.room).first()
+        total_count = room_obj.capacity if (room_obj and room_obj.capacity) else 100
+        
         rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
         
         result.append({
