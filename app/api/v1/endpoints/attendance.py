@@ -67,12 +67,18 @@ def mark_attendance(
     if attendance.qr_code_content not in valid_tokens:
         raise HTTPException(status_code=400, detail="Invalid or Expired QR Code")
     
-    # 2. Validate Geofence
     distance = get_distance(attendance.latitude, attendance.longitude, session.latitude, session.longitude)
     if distance > session.geofence_radius:
         raise HTTPException(status_code=400, detail=f"Outside geofence area. Distance: {distance:.2f}m")
     
-    # 3. Check if already marked
+    # 3. Verify Enrollment
+    if current_user not in session.course.students:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Tactical Error: Identity not enrolled in module '{session.course.name}'. Enrollment is mandatory for attendance synchronization."
+        )
+
+    # 4. Check if already marked
     existing = db.query(Attendance).filter(
         Attendance.student_id == current_user.id,
         Attendance.session_id == attendance.session_id
