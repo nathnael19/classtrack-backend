@@ -170,3 +170,35 @@ def get_sessions_report(
             "classroom": s.room
         })
     return result
+
+@router.get("/session-context")
+def get_session_context(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns strategic data for the session creation page, 
+    including the last session's performance.
+    """
+    last_session = db.query(ClassSession).join(Course).filter(
+        Course.lecturer_id == current_user.id
+    ).order_by(ClassSession.start_time.desc()).first()
+    
+    if not last_session:
+        return {
+            "last_course": "N/A",
+            "success_rate": "0%",
+            "total_scans": 0,
+            "outliers": 0
+        }
+    
+    present_count = db.query(Attendance).filter(Attendance.session_id == last_session.id).count()
+    total_count = 100 # Mock capacity
+    rate = f"{(present_count / total_count * 100):.1f}%" if total_count > 0 else "0%"
+    
+    return {
+        "last_course": last_session.course.code,
+        "success_rate": rate,
+        "total_scans": present_count,
+        "outliers": round(present_count * 0.05) # Mock outliers as 5% of scans
+    }
