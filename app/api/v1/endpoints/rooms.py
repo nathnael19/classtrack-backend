@@ -34,3 +34,41 @@ def create_room(
     db.commit()
     db.refresh(db_room)
     return db_room
+
+@router.put("/{room_id}", response_model=RoomOut)
+def update_room(
+    room_id: int,
+    room_in: RoomCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update facility specifications.
+    """
+    db_room = db.query(Room).filter(Room.id == room_id).first()
+    if not db_room:
+        raise HTTPException(status_code=404, detail="Facility not found")
+        
+    for field, value in room_in.dict().items():
+        setattr(db_room, field, value)
+        
+    db.commit()
+    db.refresh(db_room)
+    return db_room
+
+@router.delete("/{room_id}")
+def delete_room(
+    room_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Decommission a facility.
+    """
+    db_room = db.query(Room).filter(Room.id == room_id).first()
+    if not db_room:
+        raise HTTPException(status_code=404, detail="Facility not found")
+        
+    db.delete(db_room)
+    db.commit()
+    return {"message": "Facility decommissioned successfully"}
