@@ -15,6 +15,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     role = Column(Enum(UserRole))
+    student_id = Column(String, unique=True, nullable=True)
     default_session_duration = Column(Integer, default=60)
     default_session_radius = Column(Integer, default=50)
 
