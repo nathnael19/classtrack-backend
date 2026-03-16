@@ -1,8 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.v1.api import api_router
-from .db.session import engine
+from .db.session import engine, get_db
 from .db import base
+from .core.config import settings
+from contextlib import asynccontextmanager
+
+print(f"Server starting with DATABASE_URL: {settings.DATABASE_URL}")
 
 # Create database tables
 base.Base.metadata.create_all(bind=engine)
@@ -12,7 +16,7 @@ app = FastAPI(title="ClassTrack API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify the actual origins
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
