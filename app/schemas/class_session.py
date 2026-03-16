@@ -10,6 +10,9 @@ class ClassSessionBase(BaseModel):
     longitude: float
     geofence_radius: float
 
+class ClassSessionCreate(ClassSessionBase):
+    course_id: int
+
 class ClassSessionOut(ClassSessionBase):
     id: int
     course_id: int
