@@ -78,3 +78,31 @@ def mark_attendance(
 @router.get("/history", response_model=List[AttendanceOut])
 def get_attendance_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(Attendance).filter(Attendance.student_id == current_user.id).all()
+
+@router.get("/session/{session_id}", response_model=List[AttendanceOut])
+def get_session_attendance(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retrieve all attendance records for a specific session.
+    Only the lecturer of the course or an admin should ideally see this.
+    """
+    # 1. Verify session exists
+    session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # 2. Verify ownership (lecturer)
+    if session.course.lecturer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this session's attendance")
+        
+    records = db.query(Attendance).filter(Attendance.session_id == session_id).all()
+    
+    # Manually populate student details for the response
+    for r in records:
+        r.student_name = r.student.full_name
+        r.student_code = r.student.student_id
+        
+    return records
