@@ -32,3 +32,14 @@ class SessionContext(BaseModel):
     success_rate: str
     total_scans: int
     outliers: int
+
+class EngagementPoint(BaseModel):
+    name: str
+    value: int
+    color: str
+
+class PeakPeriod(BaseModel):
+    time: str
+    volume: int
+    icon: str
+    color: str
