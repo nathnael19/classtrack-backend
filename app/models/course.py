@@ -11,8 +11,10 @@ class Course(Base):
     name = Column(String)
     code = Column(String, unique=True, index=True)
     lecturer_id = Column(Integer, ForeignKey("users.id"))
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
-    lecturer = relationship("User", back_populates="lectured_courses")
+    organization = relationship("Organization", back_populates="courses")
+    lecturer = relationship("User", back_populates="lecturer_courses")
     sessions = relationship("ClassSession", back_populates="course")
     students = relationship("User", secondary=enrollment_association, backref="enrolled_courses")
 
