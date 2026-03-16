@@ -18,6 +18,20 @@ def get_sessions(
 ):
     return db.query(ClassSession).all()
 
+@router.get("/active", response_model=List[ClassSessionOut])
+def get_active_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from datetime import datetime
+    now = datetime.utcnow()
+    # Simple active check: start_time <= now <= end_time
+    # In a real app, we'd filter by student enrollment too
+    return db.query(ClassSession).filter(
+        ClassSession.start_time <= now,
+        ClassSession.end_time >= now
+    ).all()
+
 @router.post("/", response_model=ClassSessionOut, status_code=status.HTTP_201_CREATED)
 def create_session(
     session_in: ClassSessionCreate,
