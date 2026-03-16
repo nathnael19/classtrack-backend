@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
+import csv
+import io
 from datetime import datetime, timedelta
 
 from ....db.session import get_db
-from ....models.attendance import Attendance
+from ....models.attendance import Attendance, AttendanceStatus
 from ....models.room import Room
 from ....models.class_session import ClassSession
 from ....models.course import Course
@@ -14,6 +17,50 @@ from ....schemas.analytics import DashboardStats, ChartDataPoint, CourseDistribu
 from .users import get_current_user
 
 router = APIRouter()
+
+
+def _get_attendance_rate(db: Session, lecturer_id: int, start: datetime, end: datetime) -> float:
+    """Module-level helper: computes attendance rate (%) for a lecturer in a time window."""
+    total_potential = (
+        db.query(func.sum(Room.capacity))
+        .join(ClassSession, ClassSession.room == Room.name)
+        .join(Course)
+        .filter(
+            Course.lecturer_id == lecturer_id,
+            ClassSession.start_time >= start,
+            ClassSession.start_time < end,
+        )
+        .scalar() or 0
+    )
+    if total_potential == 0:
+        return 0.0
+    present = (
+        db.query(Attendance)
+        .join(ClassSession)
+        .join(Course)
+        .filter(
+            Course.lecturer_id == lecturer_id,
+            ClassSession.start_time >= start,
+            ClassSession.start_time < end,
+        )
+        .count()
+    )
+    return (present / total_potential) * 100
+
+
+def _get_session_total(db: Session, session: ClassSession) -> int:
+    """Returns the total expected students for a session (room capacity if available, else enrolled count)."""
+    room_obj = db.query(Room).filter(Room.name == session.room).first()
+    if room_obj and room_obj.capacity:
+        return room_obj.capacity
+    # Fallback: count distinct students who have ever attended this course
+    enrolled = (
+        db.query(func.count(Attendance.student_id.distinct()))
+        .join(ClassSession)
+        .filter(ClassSession.course_id == session.course_id)
+        .scalar() or 0
+    )
+    return enrolled if enrolled > 0 else 1
 
 @router.get("/dashboard", response_model=DashboardStats)
 def get_dashboard_stats(
@@ -40,25 +87,9 @@ def get_dashboard_stats(
         ClassSession.start_time < today_end
     ).count()
     
-    # Calculate attendance rate and change
     last_week_start = today_start - timedelta(days=7)
-    
-    def get_rate(start, end):
-        total = db.query(ClassSession).join(Course).filter(
-            Course.lecturer_id == current_user.id,
-            ClassSession.start_time >= start,
-            ClassSession.start_time < end
-        ).count()
-        if total == 0: return 0
-        present = db.query(Attendance).join(ClassSession).join(Course).filter(
-            Course.lecturer_id == current_user.id,
-            ClassSession.start_time >= start,
-            ClassSession.start_time < end
-        ).count()
-        return (present / (total * 100)) * 100 # Assuming 100 capacity for rate calc
-    
-    current_rate = get_rate(last_week_start, today_end)
-    prev_rate = get_rate(last_week_start - timedelta(days=7), last_week_start)
+    current_rate = _get_attendance_rate(db, current_user.id, last_week_start, today_end)
+    prev_rate = _get_attendance_rate(db, current_user.id, last_week_start - timedelta(days=7), last_week_start)
     
     diff = current_rate - prev_rate
     attendance_change = f"{'+' if diff >= 0 else ''}{diff:.1f}% this week"
@@ -81,29 +112,13 @@ def get_weekly_trend(
     for i in range(6, -1, -1):
         day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
         day_end = day_start + timedelta(days=1)
-        
-        # Previous period comparison
         prev_start = day_start - timedelta(days=7)
         prev_end = day_end - timedelta(days=7)
-        
-        def get_rate(start, end):
-            sessions = db.query(ClassSession).join(Course).filter(
-                Course.lecturer_id == current_user.id,
-                ClassSession.start_time >= start,
-                ClassSession.start_time < end
-            ).count()
-            if sessions == 0: return 0
-            present = db.query(Attendance).join(ClassSession).join(Course).filter(
-                Course.lecturer_id == current_user.id,
-                ClassSession.start_time >= start,
-                ClassSession.start_time < end
-            ).count()
-            return (present / (sessions * 100) * 100)
             
         trend.append({
             "name": day_start.strftime("%a"),
-            "rate": round(get_rate(day_start, day_end), 1),
-            "rate2": round(get_rate(prev_start, prev_end), 1)
+            "rate": round(_get_attendance_rate(db, current_user.id, day_start, day_end), 1),
+            "rate2": round(_get_attendance_rate(db, current_user.id, prev_start, prev_end), 1)
         })
     
     return trend
@@ -113,14 +128,27 @@ def get_engagement_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Mocked engagement profile logic based on status distribution.
-    In a real app, you'd check arrival time vs session start time.
-    """
+    attendance_stats = db.query(
+        Attendance.status,
+        func.count(Attendance.id).label('count')
+    ).join(ClassSession).join(Course).filter(
+        Course.lecturer_id == current_user.id
+    ).group_by(Attendance.status).all()
+    
+    total = sum(stat.count for stat in attendance_stats)
+    if total == 0:
+        return [
+            {"name": "On Time", "value": 0, "color": "#10b981"},
+            {"name": "Late", "value": 0, "color": "#f59e0b"},
+            {"name": "Absent", "value": 0, "color": "#ef4444"},
+        ]
+        
+    status_map = {stat.status: stat.count for stat in attendance_stats}
+    
     return [
-        {"name": "On Time", "value": 82, "color": "#10b981"},
-        {"name": "Late", "value": 12, "color": "#f59e0b"},
-        {"name": "Absent", "value": 6, "color": "#ef4444"},
+        {"name": "On Time", "value": round((status_map.get(AttendanceStatus.present, 0) / total) * 100), "color": "#10b981"},
+        {"name": "Late", "value": round((status_map.get(AttendanceStatus.late, 0) / total) * 100), "color": "#f59e0b"},
+        {"name": "Absent", "value": round((status_map.get(AttendanceStatus.absent, 0) / total) * 100), "color": "#ef4444"},
     ]
 
 @router.get("/peak-periods", response_model=List[PeakPeriod])
@@ -128,15 +156,32 @@ def get_peak_periods(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Simulated peak arrival periods.
-    """
-    return [
-        {"time": "08:00 AM", "volume": 92, "icon": "Clock", "color": "from-emerald-400 to-emerald-600"},
-        {"time": "10:00 AM", "volume": 85, "icon": "Clock", "color": "from-blue-400 to-blue-600"},
-        {"time": "12:00 PM", "volume": 60, "icon": "Clock", "color": "from-amber-400 to-amber-600"},
-        {"time": "02:00 PM", "volume": 78, "icon": "Clock", "color": "from-indigo-400 to-indigo-600"},
-        {"time": "04:00 PM", "volume": 42, "icon": "Clock", "color": "from-rose-400 to-rose-600"},
+    # Group attendance by hour of the day
+    peaks = db.query(
+        func.extract('hour', Attendance.timestamp).label('hour'),
+        func.count(Attendance.id).label('count')
+    ).join(ClassSession).join(Course).filter(
+        Course.lecturer_id == current_user.id
+    ).group_by('hour').order_by('hour').all()
+    
+    max_count = max([p.count for p in peaks]) if peaks else 1
+    
+    result = []
+    for p in peaks:
+        hour = int(p.hour)
+        am_pm = "AM" if hour < 12 else "PM"
+        display_hour = hour if hour <= 12 else hour - 12
+        if display_hour == 0: display_hour = 12
+        
+        result.append({
+            "time": f"{display_hour:02d}:00 {am_pm}",
+            "volume": round((p.count / max_count) * 100),
+            "icon": "Clock",
+            "color": "from-blue-400 to-indigo-600"
+        })
+        
+    return result if result else [
+        {"time": "No Data", "volume": 0, "icon": "Clock", "color": "from-gray-400 to-gray-600"}
     ]
 
 @router.get("/course-distribution", response_model=List[CourseDistribution])
@@ -170,7 +215,7 @@ def get_recent_sessions(
     result = []
     for s in sessions:
         present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        total_count = 100 # Mock capacity
+        total_count = _get_session_total(db, s)
         rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
         
         result.append({
@@ -211,10 +256,7 @@ def get_sessions_report(
     result = []
     for s in sessions:
         present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        # Fallback to capacity from Room model if available, else 100
-        room_obj = db.query(Room).filter(Room.name == s.room).first()
-        total_count = room_obj.capacity if (room_obj and room_obj.capacity) else 100
-        
+        total_count = _get_session_total(db, s)
         rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
         
         result.append({
@@ -250,12 +292,12 @@ def get_session_context(
         }
     
     present_count = db.query(Attendance).filter(Attendance.session_id == last_session.id).count()
-    total_count = 100 # Mock capacity
+    total_count = _get_session_total(db, last_session)
     rate = f"{(present_count / total_count * 100):.1f}%" if total_count > 0 else "0%"
     
     return {
         "last_course": last_session.course.code,
         "success_rate": rate,
         "total_scans": present_count,
-        "outliers": round(present_count * 0.05) # Mock outliers as 5% of scans
+        "outliers": 0  # Reserved for future anomaly detection
     }
