@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 class CourseBase(BaseModel):
     name: str
@@ -22,3 +23,18 @@ class StudentEnroll(BaseModel):
 
 class EnrollmentRequest(BaseModel):
     students: List[StudentEnroll]
+
+class StudentActivityOut(BaseModel):
+    id: int
+    name: str
+    student_id: str
+    attendance_count: int
+    total_sessions: int
+    attendance_rate: float
+    last_seen: Optional[datetime] = None
+    status: str # 'Consistent', 'At Risk', 'Inactive'
+
+class CourseDetailOut(CourseOut):
+    students: List[StudentActivityOut]
+    total_sessions: int
+    average_attendance: float
