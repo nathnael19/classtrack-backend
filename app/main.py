@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from .api.v1.api import api_router
 from .db.session import engine
 from .db import base
@@ -7,6 +8,14 @@ from .db import base
 base.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ClassTrack API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify the actual origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(api_router, prefix="/api/v1")
 
