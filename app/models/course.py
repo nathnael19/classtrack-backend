@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from ..db.session import Base
+from .enrollment import enrollment_association
 
 class Course(Base):
     __tablename__ = "courses"
@@ -12,3 +13,4 @@ class Course(Base):
 
     lecturer = relationship("User", back_populates="lectured_courses")
     sessions = relationship("ClassSession", back_populates="course")
+    students = relationship("User", secondary=enrollment_association, backref="enrolled_courses")
