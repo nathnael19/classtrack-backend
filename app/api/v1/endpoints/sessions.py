@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 
 from ....db.session import get_db
 from ....models.class_session import ClassSession
+from ....models.attendance import Attendance, AttendanceStatus
 from ....models.course import Course
 from ....models.user import User, UserRole
 from ....schemas.class_session import ClassSessionCreate, ClassSessionOut
@@ -116,6 +118,21 @@ def stop_session(
         raise HTTPException(status_code=403, detail="Not authorized")
         
     session.end_time = datetime.utcnow()
+    
+    # NEW: Mark absentees for the stopped session
+    enrolled_students = session.course.students
+    marked_student_ids = [a.student_id for a in session.attendances]
+    
+    for student in enrolled_students:
+        if student.id not in marked_student_ids:
+            absent_attendance = Attendance(
+                student_id=student.id,
+                session_id=session.id,
+                status=AttendanceStatus.absent,
+                timestamp=datetime.utcnow()
+            )
+            db.add(absent_attendance)
+    
     db.commit()
     db.refresh(session)
     return session
