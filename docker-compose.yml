@@ -1,0 +1,13 @@
+services:
+  backend:
+    build: .
+    container_name: classtrack_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    extra_hosts:
+      - "ep-dry-silence-ai1wgg9u-pooler.c-4.us-east-1.aws.neon.tech:44.211.114.173"
+    volumes:
+      - .:/app
+    restart: unless-stopped
