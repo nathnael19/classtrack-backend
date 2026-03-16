@@ -3,6 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 import math
+import hmac
+import hashlib
+import time
 
 from ....db.session import get_db
 from ....models.attendance import Attendance, AttendanceStatus
@@ -44,9 +47,25 @@ def mark_attendance(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    # 1. Validate QR Code
-    if session.qr_code_content != attendance.qr_code_content:
-        raise HTTPException(status_code=400, detail="Invalid QR Code")
+    # 1. Validate Rotating QR Token
+    # The session's qr_code_content is used as a secret seed
+    # Token rotates every 2 minutes (120 seconds)
+    rotation_interval = 120
+    timestamp = int(time.time())
+    time_step = timestamp // rotation_interval
+    
+    def generate_token(step, secret):
+        h = hmac.new(secret.encode(), str(step).encode(), hashlib.sha256)
+        return h.hexdigest().upper()[:8]
+
+    # Check current and previous step to allow for clock drift/network latency
+    valid_tokens = [
+        generate_token(time_step, session.qr_code_content),
+        generate_token(time_step - 1, session.qr_code_content)
+    ]
+    
+    if attendance.qr_code_content not in valid_tokens:
+        raise HTTPException(status_code=400, detail="Invalid or Expired QR Code")
     
     # 2. Validate Geofence
     distance = get_distance(attendance.latitude, attendance.longitude, session.latitude, session.longitude)
