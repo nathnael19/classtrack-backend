@@ -11,6 +11,7 @@ class CourseCreate(CourseBase):
 class CourseOut(CourseBase):
     id: int
     lecturer_id: int
+    student_count: int = 0
 
     class Config:
         from_attributes = True
