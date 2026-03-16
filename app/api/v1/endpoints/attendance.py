@@ -31,16 +31,6 @@ def get_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-@router.get("/courses", response_model=List[CourseOut])
-def get_student_courses(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != UserRole.student:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    return db.query(Course).all()
-
-@router.get("/sessions", response_model=List[ClassSessionOut])
-def get_upcoming_sessions(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return db.query(ClassSession).all()
-
 @router.post("/mark", response_model=AttendanceOut)
 def mark_attendance(
     attendance: AttendanceMark,
