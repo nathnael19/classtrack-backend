@@ -39,14 +39,36 @@ def get_dashboard_stats(
         ClassSession.start_time < today_end
     ).count()
     
-    # Mock data for rates/changes as they require historical aggregation
+    # Calculate attendance rate and change
+    last_week_start = today_start - timedelta(days=7)
+    
+    def get_rate(start, end):
+        total = db.query(ClassSession).join(Course).filter(
+            Course.lecturer_id == current_user.id,
+            ClassSession.start_time >= start,
+            ClassSession.start_time < end
+        ).count()
+        if total == 0: return 0
+        present = db.query(Attendance).join(ClassSession).join(Course).filter(
+            Course.lecturer_id == current_user.id,
+            ClassSession.start_time >= start,
+            ClassSession.start_time < end
+        ).count()
+        return (present / (total * 100)) * 100 # Assuming 100 capacity for rate calc
+    
+    current_rate = get_rate(last_week_start, today_end)
+    prev_rate = get_rate(last_week_start - timedelta(days=7), last_week_start)
+    
+    diff = current_rate - prev_rate
+    attendance_change = f"{'+' if diff >= 0 else ''}{diff:.1f}% this week"
+    
     return {
         "total_courses": total_courses,
         "active_sessions_today": active_sessions_today,
         "students_present_today": students_present_today,
-        "avg_attendance_rate": 89.5,  # Mock for now
-        "attendance_change": "+2.4% this week",
-        "is_positive": True
+        "avg_attendance_rate": round(current_rate, 1),
+        "attendance_change": attendance_change,
+        "is_positive": diff >= 0
     }
 
 @router.get("/weekly-trend", response_model=List[ChartDataPoint])
@@ -54,15 +76,30 @@ def get_weekly_trend(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # This would aggregate attendance rate per day
-    # For simplicity, returning mock data matched to frontend expected format
-    return [
-        {"name": "Mon", "rate": 75, "rate2": 80},
-        {"name": "Tue", "rate": 85, "rate2": 82},
-        {"name": "Wed", "rate": 90, "rate2": 85},
-        {"name": "Thu", "rate": 82, "rate2": 83},
-        {"name": "Fri", "rate": 95, "rate2": 89},
-    ]
+    trend = []
+    for i in range(6, -1, -1):
+        day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
+        day_end = day_start + timedelta(days=1)
+        
+        sessions_count = db.query(ClassSession).join(Course).filter(
+            Course.lecturer_id == current_user.id,
+            ClassSession.start_time >= day_start,
+            ClassSession.start_time < day_end
+        ).count()
+        
+        present_count = db.query(Attendance).join(ClassSession).join(Course).filter(
+            Course.lecturer_id == current_user.id,
+            ClassSession.start_time >= day_start,
+            ClassSession.start_time < day_end
+        ).count()
+        
+        rate = (present_count / (sessions_count * 100) * 100) if sessions_count > 0 else 0
+        trend.append({
+            "name": day_start.strftime("%a"),
+            "rate": round(rate, 1)
+        })
+    
+    return trend
 
 @router.get("/course-distribution", response_model=List[CourseDistribution])
 def get_course_distribution(
@@ -73,10 +110,13 @@ def get_course_distribution(
     courses = db.query(Course).filter(Course.lecturer_id == current_user.id).all()
     result = []
     for course in courses:
-        # Just a dummy count for now
+        student_count = db.query(func.count(Attendance.id)).join(ClassSession).filter(
+            ClassSession.course_id == course.id
+        ).scalar() or 0
+        
         result.append({
             "name": course.code,
-            "students": 100 + course.id * 10
+            "students": student_count
         })
     return result
 
