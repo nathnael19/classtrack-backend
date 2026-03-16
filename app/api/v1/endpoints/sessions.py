@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 
 from ....db.session import get_db
 from ....models.class_session import ClassSession
@@ -18,19 +19,52 @@ def get_sessions(
 ):
     return db.query(ClassSession).all()
 
+# ⚠️ IMPORTANT: Specific string routes MUST come BEFORE wildcard /{session_id} routes
 @router.get("/active", response_model=List[ClassSessionOut])
 def get_active_sessions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    from datetime import datetime
     now = datetime.utcnow()
-    # Simple active check: start_time <= now <= end_time
-    # In a real app, we'd filter by student enrollment too
     return db.query(ClassSession).filter(
         ClassSession.start_time <= now,
         ClassSession.end_time >= now
     ).all()
+
+@router.get("/active-lecturer", response_model=ClassSessionOut)
+def get_active_lecturer_session(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the most recently started active session for the currently logged-in lecturer.
+    NOTE: This route must appear BEFORE /{session_id} to avoid being swallowed by it.
+    """
+    now = datetime.utcnow()
+
+    print(f"DEBUG /active-lecturer: lecturer_id={current_user.id}, now={now}")
+
+    session = db.query(ClassSession).filter(
+        ClassSession.course.has(lecturer_id=current_user.id),
+        ClassSession.start_time <= now,
+        ClassSession.end_time >= now
+    ).order_by(ClassSession.start_time.desc()).first()
+
+    if not session:
+        # Extra diagnostics: check if any session exists for this lecturer at all
+        any_session = db.query(ClassSession).filter(
+            ClassSession.course.has(lecturer_id=current_user.id)
+        ).order_by(ClassSession.start_time.desc()).first()
+
+        if any_session:
+            print(f"DEBUG: Latest session for lecturer: id={any_session.id}, start={any_session.start_time}, end={any_session.end_time}")
+        else:
+            print("DEBUG: No sessions found for this lecturer at all.")
+
+        raise HTTPException(status_code=404, detail="No active session found")
+
+    print(f"DEBUG: Found active session id={session.id}")
+    return session
 
 @router.post("/", response_model=ClassSessionOut, status_code=status.HTTP_201_CREATED)
 def create_session(
@@ -41,7 +75,6 @@ def create_session(
     if current_user.role != UserRole.lecturer:
         raise HTTPException(status_code=403, detail="Only lecturers can create sessions")
     
-    # Verify course exists and belongs to lecturer
     course = db.query(Course).filter(Course.id == session_in.course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -66,28 +99,6 @@ def get_session(
         raise HTTPException(status_code=404, detail="Session not found")
     return session
 
-@router.get("/active-lecturer", response_model=ClassSessionOut)
-def get_active_lecturer_session(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Get the most recently started session for the lecturer that is still "active"
-    (i.e., not manually stopped and within time bounds).
-    """
-    from datetime import datetime
-    now = datetime.utcnow()
-    
-    session = db.query(ClassSession).join(Course).filter(
-        Course.lecturer_id == current_user.id,
-        ClassSession.start_time <= now,
-        ClassSession.end_time >= now
-    ).order_by(ClassSession.start_time.desc()).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="No active session found")
-    return session
-
 @router.patch("/{session_id}/stop", response_model=ClassSessionOut)
 def stop_session(
     session_id: int,
@@ -97,12 +108,10 @@ def stop_session(
     """
     Manually end a session by setting its end_time to now.
     """
-    from datetime import datetime
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    # Verify ownership
     if session.course.lecturer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
         
