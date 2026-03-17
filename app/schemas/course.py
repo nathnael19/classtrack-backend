@@ -5,6 +5,11 @@ from datetime import datetime
 class CourseBase(BaseModel):
     name: str
     code: str
+    description: Optional[str] = None
+    term_id: Optional[int] = None
+    department_id: Optional[int] = None
+    credit_hours: Optional[int] = None
+    is_active: bool = True
 
 class CourseCreate(CourseBase):
     pass
