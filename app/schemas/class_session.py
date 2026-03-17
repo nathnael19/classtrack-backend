@@ -1,5 +1,7 @@
 from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
+from typing import Optional
+from ..models.class_session import SessionStatus
 
 class ClassSessionBase(BaseModel):
     room: str
@@ -9,6 +11,9 @@ class ClassSessionBase(BaseModel):
     latitude: float
     longitude: float
     geofence_radius: float
+    status: SessionStatus = SessionStatus.scheduled
+    topic: Optional[str] = None
+    notes: Optional[str] = None
 
     @field_validator('start_time', 'end_time', mode='before')
     @classmethod
