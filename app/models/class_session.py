@@ -1,6 +1,13 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Enum, Text
 from sqlalchemy.orm import relationship
+import enum
 from ..db.session import Base
+
+class SessionStatus(enum.Enum):
+    scheduled = "scheduled"
+    active = "active"
+    completed = "completed"
+    cancelled = "cancelled"
 
 class ClassSession(Base):
     __tablename__ = "class_sessions"
@@ -14,6 +21,9 @@ class ClassSession(Base):
     latitude = Column(Float)
     longitude = Column(Float)
     geofence_radius = Column(Float, default=100.0) # in meters
+    status = Column(Enum(SessionStatus), default=SessionStatus.scheduled)
+    topic = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
 
     course = relationship("Course", back_populates="sessions")
     attendances = relationship("Attendance", back_populates="session")
