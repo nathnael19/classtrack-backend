@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Enum, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Enum, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 import enum
+from datetime import datetime
 from ..db.session import Base
 
 class UserRole(enum.Enum):
@@ -22,7 +23,11 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     fcm_token = Column(String, nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    profile_picture_url = Column(String, nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    last_active_at = Column(DateTime, nullable=True)
 
     organization = relationship("Organization", back_populates="users")
+    department = relationship("Department", back_populates="users")
     lecturer_courses = relationship("Course", back_populates="lecturer", foreign_keys="[Course.lecturer_id]")
     attendances = relationship("Attendance", back_populates="student")
