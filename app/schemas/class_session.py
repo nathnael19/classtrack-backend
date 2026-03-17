@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from datetime import datetime
+from pydantic import BaseModel, field_validator
+from datetime import datetime, timezone
 
 class ClassSessionBase(BaseModel):
     room: str
@@ -9,6 +9,15 @@ class ClassSessionBase(BaseModel):
     latitude: float
     longitude: float
     geofence_radius: float
+
+    @field_validator('start_time', 'end_time', mode='before')
+    @classmethod
+    def ensure_utc(cls, v):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        if isinstance(v, str) and 'Z' not in v and '+' not in v:
+            return f"{v}Z"
+        return v
 
 class ClassSessionCreate(ClassSessionBase):
     course_id: int
