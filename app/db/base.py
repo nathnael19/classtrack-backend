@@ -5,3 +5,8 @@ from ..models.class_session import ClassSession
 from ..models.attendance import Attendance
 from ..models.room import Room
 from ..models.organization import Organization
+from ..models.department import Department
+from ..models.term import Term
+from ..models.device_fingerprint import DeviceFingerprint
+from ..models.leave_request import LeaveRequest
+from ..models.notification import Notification
