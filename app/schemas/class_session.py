@@ -35,5 +35,12 @@ class ClassSessionOut(ClassSessionBase):
     lecturer_name: Optional[str] = None
     is_present: bool = False
 
+class SessionStudentOut(BaseModel):
+    id: int
+    name: str
+    student_id: Optional[str] = None  # Student code (e.g. S-1001)
+    status: Optional[str] = None     # present, late, absent, or None
+    timestamp: Optional[datetime] = None
+
     class Config:
         from_attributes = True
