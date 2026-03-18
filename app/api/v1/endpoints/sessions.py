@@ -14,6 +14,26 @@ from .users import get_current_user
 
 router = APIRouter()
 
+def populate_is_present(sessions: List[ClassSession], user_id: int, db: Session):
+    """
+    Populate is_present field for a list of sessions for a specific student.
+    """
+    if not sessions:
+        return
+    
+    # Get all sessions where this student is marked present
+    present_session_ids = {
+        a[0] for a in db.query(Attendance.session_id)
+        .filter(
+            Attendance.student_id == user_id,
+            Attendance.status == AttendanceStatus.present,
+            Attendance.session_id.in_([s.id for s in sessions])
+        ).all()
+    }
+    
+    for s in sessions:
+        s.is_present = s.id in present_session_ids
+
 def mark_absentees(session: ClassSession, db: Session):
     """
     Mark all enrolled students who haven't scanned as absent.
@@ -61,7 +81,12 @@ def get_sessions(
     if end_date:
         query = query.filter(ClassSession.end_time <= end_date)
         
-    return query.order_by(ClassSession.start_time.asc()).all()
+    sessions = query.order_by(ClassSession.start_time.asc()).all()
+    
+    if current_user.role == UserRole.student:
+        populate_is_present(sessions, current_user.id, db)
+        
+    return sessions
 
 # ⚠️ IMPORTANT: Specific string routes MUST come BEFORE wildcard /{session_id} routes
 @router.get("/active", response_model=List[ClassSessionOut])
@@ -90,7 +115,12 @@ def get_active_sessions(
         course_ids = [c.id for c in current_user.enrolled_courses]
         query = query.filter(ClassSession.course_id.in_(course_ids))
     
-    return query.all()
+    sessions = query.all()
+    
+    if current_user.role == UserRole.student:
+        populate_is_present(sessions, current_user.id, db)
+        
+    return sessions
 
 @router.get("/upcoming", response_model=List[ClassSessionOut])
 def get_upcoming_sessions(
@@ -104,7 +134,12 @@ def get_upcoming_sessions(
         course_ids = [c.id for c in current_user.enrolled_courses]
         query = query.filter(ClassSession.course_id.in_(course_ids))
     
-    return query.order_by(ClassSession.start_time.asc()).limit(10).all()
+    sessions = query.order_by(ClassSession.start_time.asc()).limit(10).all()
+    
+    if current_user.role == UserRole.student:
+        populate_is_present(sessions, current_user.id, db)
+        
+    return sessions
 
 from sqlalchemy import or_
 
