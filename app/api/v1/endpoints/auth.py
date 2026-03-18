@@ -31,6 +31,14 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
         ).first()
         
         if placeholder:
+            # If the found user is NOT a placeholder (i.e. already has a real email),
+            # then someone else has already registered with this student ID.
+            if not placeholder.email.endswith('@classtrack.placeholder'):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, 
+                    detail="This Student ID is already registered to another account"
+                )
+            
             # Update the placeholder account
             placeholder.name = user.name
             placeholder.email = user.email
