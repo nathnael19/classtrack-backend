@@ -19,6 +19,9 @@ class AttendanceOut(BaseModel):
     student_code: Optional[str] = None
     timestamp: datetime
     status: AttendanceStatus
+    course_name: Optional[str] = None
+    session_topic: Optional[str] = None
+    room: Optional[str] = None
     location_lat: Optional[float] = None
     location_lng: Optional[float] = None
     device_fingerprint: Optional[str] = None
