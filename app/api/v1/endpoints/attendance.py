@@ -11,7 +11,7 @@ from ....db.session import get_db
 from ....models.attendance import Attendance, AttendanceStatus
 from ....models.class_session import ClassSession
 from ....models.user import User, UserRole
-from ....schemas.attendance import AttendanceMark, AttendanceOut
+from ....schemas.attendance import AttendanceMark, AttendanceOut, AttendanceSummary
 from ....schemas.class_session import ClassSessionOut
 from ....schemas.course import CourseOut
 from ....models.course import Course
@@ -131,3 +131,56 @@ def get_session_attendance(
         r.student_code = r.student.student_id
         
     return records
+
+@router.get("/summary", response_model=AttendanceSummary)
+def get_attendance_summary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.student:
+        raise HTTPException(status_code=403, detail="Only students have attendance summaries")
+        
+    attendances = db.query(Attendance).filter(Attendance.student_id == current_user.id).all()
+    
+    total = len(attendances)
+    present = len([a for a in attendances if a.status == AttendanceStatus.present])
+    absent_total = len([a for a in attendances if a.status == AttendanceStatus.absent])
+    
+    now = datetime.utcnow()
+    absent_this_month = len([
+        a for a in attendances 
+        if a.status == AttendanceStatus.absent 
+        and a.timestamp.month == now.month 
+        and a.timestamp.year == now.year
+    ])
+    
+    percent = (present / total) if total > 0 else 1.0
+    
+    # Standing logic
+    if percent >= 0.9:
+        standing = "Excellent Standing"
+    elif percent >= 0.75:
+        standing = "Great Standing"
+    elif percent >= 0.6:
+        standing = "Good Standing"
+    else:
+        standing = "Low Attendance"
+        
+    # Message logic
+    if total == 0:
+        message = "No classes recorded yet."
+    elif absent_this_month == 0:
+        message = "Perfect attendance this month!"
+    elif absent_this_month == 1:
+        message = "You missed only 1 class this month."
+    else:
+        message = f"You missed {absent_this_month} classes this month."
+        
+    return {
+        "percent": percent,
+        "status": standing,
+        "message": message,
+        "total_classes": total,
+        "present_count": present,
+        "absent_count": absent_total
+    }
