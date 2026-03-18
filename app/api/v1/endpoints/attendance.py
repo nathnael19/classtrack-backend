@@ -78,15 +78,8 @@ def mark_attendance(
             detail=f"Tactical Error: Identity not enrolled in module '{session.course.name}'. Enrollment is mandatory for attendance synchronization."
         )
 
-    # 4. Determine Status (Present vs Late)
-    # Default threshold: 15 minutes
-    late_threshold_minutes = 15
-    session_start_time = session.start_time
-    time_diff = (datetime.utcnow() - session_start_time).total_seconds() / 60
-    
+    # 4. Determine Status (Always Present when scanned as requested)
     status = AttendanceStatus.present
-    if time_diff > late_threshold_minutes:
-        status = AttendanceStatus.late
     
     # 5. Check if already marked
     existing = db.query(Attendance).filter(
