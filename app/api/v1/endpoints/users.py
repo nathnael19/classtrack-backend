@@ -47,8 +47,19 @@ def update_user_me(
         current_user.name = obj_in.name
     if obj_in.email is not None:
         current_user.email = obj_in.email
-    if obj_in.password is not None:
-        current_user.hashed_password = get_password_hash(obj_in.password)
+    
+    if obj_in.new_password is not None:
+        if obj_in.current_password is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is required to set a new password"
+            )
+        if not verify_password(obj_in.current_password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Incorrect current password"
+            )
+        current_user.hashed_password = get_password_hash(obj_in.new_password)
     if obj_in.default_session_duration is not None:
         current_user.default_session_duration = obj_in.default_session_duration
     if obj_in.default_session_radius is not None:
