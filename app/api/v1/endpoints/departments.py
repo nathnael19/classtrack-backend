@@ -12,8 +12,7 @@ router = APIRouter()
 
 @router.get("/", response_model=List[DepartmentOut])
 def get_departments(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     return db.query(Department).all()
 
