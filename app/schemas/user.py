@@ -21,6 +21,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     default_session_duration: Optional[int] = None
     default_session_radius: Optional[int] = None
+    department_id: Optional[int] = None
 
 class UserOut(UserBase):
     id: int
