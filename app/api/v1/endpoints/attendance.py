@@ -124,12 +124,6 @@ def get_session_attendance(
         raise HTTPException(status_code=403, detail="Not authorized to view this session's attendance")
         
     records = db.query(Attendance).filter(Attendance.session_id == session_id).all()
-    
-    # Manually populate student details for the response
-    for r in records:
-        r.student_name = r.student.full_name
-        r.student_code = r.student.student_id
-        
     return records
 
 from datetime import datetime, timedelta
