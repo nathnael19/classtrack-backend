@@ -9,10 +9,50 @@ from ....models.class_session import ClassSession, SessionStatus
 from ....models.attendance import Attendance, AttendanceStatus
 from ....models.course import Course
 from ....models.user import User, UserRole
-from ....schemas.class_session import ClassSessionCreate, ClassSessionOut
+from ....schemas.class_session import ClassSessionCreate, ClassSessionOut, SessionStudentOut
 from .users import get_current_user
 
 router = APIRouter()
+
+@router.get("/{session_id}/students", response_model=List[SessionStudentOut])
+def get_session_students(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.lecturer:
+        raise HTTPException(status_code=403, detail="Only lecturers can view detailed enrollment")
+    
+    session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Authorized?
+    course = session.course
+    is_authorized = (course.lecturer_id == current_user.id) or (current_user in course.lecturers)
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Not authorized for this course")
+    
+    # Get all enrolled students
+    students = course.students
+    
+    # Get all attendance records for this session
+    attendance_map = {
+        a.student_id: a for a in db.query(Attendance).filter(Attendance.session_id == session_id).all()
+    }
+    
+    result = []
+    for s in students:
+        att = attendance_map.get(s.id)
+        result.append({
+            "id": s.id,
+            "name": s.name,
+            "student_id": s.student_id,
+            "status": att.status.value if att else None,
+            "timestamp": att.timestamp if att else None
+        })
+    
+    return result
 
 def populate_is_present(sessions: List[ClassSession], user_id: int, db: Session):
     """
