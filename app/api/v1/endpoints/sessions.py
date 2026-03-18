@@ -5,7 +5,7 @@ from typing import List
 from datetime import datetime
 
 from ....db.session import get_db
-from ....models.class_session import ClassSession
+from ....models.class_session import ClassSession, SessionStatus
 from ....models.attendance import Attendance, AttendanceStatus
 from ....models.course import Course
 from ....models.user import User, UserRole
@@ -13,6 +13,26 @@ from ....schemas.class_session import ClassSessionCreate, ClassSessionOut
 from .users import get_current_user
 
 router = APIRouter()
+
+def mark_absentees(session: ClassSession, db: Session):
+    """
+    Mark all enrolled students who haven't scanned as absent.
+    """
+    enrolled_students = session.course.students
+    marked_student_ids = [a.student_id for a in session.attendances]
+    
+    for student in enrolled_students:
+        if student.id not in marked_student_ids:
+            absent_attendance = Attendance(
+                student_id=student.id,
+                session_id=session.id,
+                status=AttendanceStatus.absent,
+                timestamp=datetime.utcnow()
+            )
+            db.add(absent_attendance)
+    
+    session.status = SessionStatus.completed
+    db.commit()
 
 @router.get("/", response_model=List[ClassSessionOut])
 def get_sessions(
@@ -28,9 +48,19 @@ def get_active_sessions(
     current_user: User = Depends(get_current_user)
 ):
     now = datetime.utcnow()
+    # Lazy cleanup: Find sessions that are "active" but past their end_time
+    expired_sessions = db.query(ClassSession).filter(
+        ClassSession.status == SessionStatus.active,
+        ClassSession.end_time < now
+    ).all()
+    
+    for session in expired_sessions:
+        mark_absentees(session, db)
+
     query = db.query(ClassSession).filter(
         ClassSession.start_time <= now,
-        ClassSession.end_time >= now
+        ClassSession.end_time >= now,
+        ClassSession.status != SessionStatus.completed
     )
     
     if current_user.role == UserRole.student:
@@ -139,21 +169,6 @@ def stop_session(
         raise HTTPException(status_code=403, detail="Not authorized")
         
     session.end_time = datetime.utcnow()
-    
-    # NEW: Mark absentees for the stopped session
-    enrolled_students = session.course.students
-    marked_student_ids = [a.student_id for a in session.attendances]
-    
-    for student in enrolled_students:
-        if student.id not in marked_student_ids:
-            absent_attendance = Attendance(
-                student_id=student.id,
-                session_id=session.id,
-                status=AttendanceStatus.absent,
-                timestamp=datetime.utcnow()
-            )
-            db.add(absent_attendance)
-    
-    db.commit()
+    mark_absentees(session, db)
     db.refresh(session)
     return session
