@@ -28,10 +28,31 @@ def get_active_sessions(
     current_user: User = Depends(get_current_user)
 ):
     now = datetime.utcnow()
-    return db.query(ClassSession).filter(
+    query = db.query(ClassSession).filter(
         ClassSession.start_time <= now,
         ClassSession.end_time >= now
-    ).all()
+    )
+    
+    if current_user.role == UserRole.student:
+        # Filter sessions for courses the student is enrolled in
+        course_ids = [c.id for c in current_user.enrolled_courses]
+        query = query.filter(ClassSession.course_id.in_(course_ids))
+    
+    return query.all()
+
+@router.get("/upcoming", response_model=List[ClassSessionOut])
+def get_upcoming_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    now = datetime.utcnow()
+    query = db.query(ClassSession).filter(ClassSession.start_time > now)
+    
+    if current_user.role == UserRole.student:
+        course_ids = [c.id for c in current_user.enrolled_courses]
+        query = query.filter(ClassSession.course_id.in_(course_ids))
+    
+    return query.order_by(ClassSession.start_time.asc()).limit(10).all()
 
 @router.get("/active-lecturer", response_model=ClassSessionOut)
 def get_active_lecturer_session(
