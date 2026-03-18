@@ -31,3 +31,7 @@ class User(Base):
     department = relationship("Department", back_populates="users")
     lecturer_courses = relationship("Course", back_populates="lecturer", foreign_keys="[Course.lecturer_id]")
     attendances = relationship("Attendance", back_populates="student")
+
+    @property
+    def department_name(self):
+        return self.department.name if self.department else "Not Assigned"
