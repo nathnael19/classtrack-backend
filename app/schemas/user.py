@@ -18,7 +18,8 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
-    password: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
     default_session_duration: Optional[int] = None
     default_session_radius: Optional[int] = None
     department_id: Optional[int] = None
