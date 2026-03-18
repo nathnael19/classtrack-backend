@@ -54,9 +54,10 @@ def mark_attendance(
     timestamp = int(time.time())
     time_step = timestamp // rotation_interval
     
-    def generate_token(step, secret):
+    def generate_token(step: int, secret: str) -> str:
         h = hmac.new(secret.encode(), str(step).encode(), hashlib.sha256)
-        return h.hexdigest().upper()[:8]
+        hex_digest = h.hexdigest().upper()
+        return hex_digest[:8]
 
     # Check current and previous step to allow for clock drift/network latency
     valid_tokens = [
