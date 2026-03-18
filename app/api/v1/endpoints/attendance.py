@@ -132,6 +132,9 @@ def get_session_attendance(
         
     return records
 
+from datetime import datetime, timedelta
+# ... (existing imports)
+
 @router.get("/summary", response_model=AttendanceSummary)
 def get_attendance_summary(
     current_user: User = Depends(get_current_user),
@@ -154,10 +157,35 @@ def get_attendance_summary(
         and a.timestamp.year == now.year
     ])
     
-    percent = (present / total) if total > 0 else 1.0
+    # Bug fix: If total is 0, percent is 0.0
+    percent = (present / total) if total > 0 else 0.0
     
+    # Weekly stats for the last 5 weeks
+    weekly_stats = []
+    # Find the Monday of the current week (local 00:00)
+    current_monday = now - timedelta(days=now.weekday())
+    current_monday = current_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    for i in range(4, -1, -1):
+        week_start = current_monday - timedelta(weeks=i)
+        week_end = week_start + timedelta(days=7)
+        
+        week_attendances = [
+            a for a in attendances 
+            if week_start <= a.timestamp < week_end
+        ]
+        
+        if not week_attendances:
+            weekly_stats.append(0.0)
+        else:
+            w_total = len(week_attendances)
+            w_present = len([a for a in week_attendances if a.status == AttendanceStatus.present])
+            weekly_stats.append(w_present / w_total)
+
     # Standing logic
-    if percent >= 0.9:
+    if total == 0:
+        standing = "No Records"
+    elif percent >= 0.9:
         standing = "Excellent Standing"
     elif percent >= 0.75:
         standing = "Great Standing"
@@ -182,5 +210,6 @@ def get_attendance_summary(
         "message": message,
         "total_classes": total,
         "present_count": present,
-        "absent_count": absent_total
+        "absent_count": absent_total,
+        "weekly_stats": weekly_stats
     }
