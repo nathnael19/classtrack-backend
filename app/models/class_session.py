@@ -31,3 +31,7 @@ class ClassSession(Base):
     @property
     def course_name(self) -> str:
         return self.course.name if self.course else "Unknown Course"
+
+    @property
+    def lecturer_name(self) -> str:
+        return self.course.lecturer.full_name if self.course and self.course.lecturer else "N/A"
