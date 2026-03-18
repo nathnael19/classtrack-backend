@@ -8,10 +8,10 @@ import hashlib
 import time
 
 from ....db.session import get_db
-from ....models.attendance import Attendance, AttendanceStatus
+from ....models.attendance import Attendance, AttendanceStatus, VerificationMethod
 from ....models.class_session import ClassSession
 from ....models.user import User, UserRole
-from ....schemas.attendance import AttendanceMark, AttendanceOut, AttendanceSummary
+from ....schemas.attendance import AttendanceMark, AttendanceOut, AttendanceSummary, ManualAttendanceMark
 from ....schemas.class_session import ClassSessionOut
 from ....schemas.course import CourseOut
 from ....models.course import Course
@@ -93,6 +93,59 @@ def mark_attendance(
         student_id=current_user.id,
         session_id=attendance.session_id,
         status=status,
+        timestamp=datetime.utcnow()
+    )
+    db.add(new_attendance)
+    db.commit()
+    db.refresh(new_attendance)
+    return new_attendance
+
+@router.post("/manual", response_model=AttendanceOut)
+def manual_mark_attendance(
+    attendance_in: ManualAttendanceMark,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != UserRole.lecturer:
+        raise HTTPException(status_code=403, detail="Only lecturers can mark attendance manually")
+    
+    session = db.query(ClassSession).filter(ClassSession.id == attendance_in.session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Verify lecturer is authorized for this course
+    course = session.course
+    is_authorized = (course.lecturer_id == current_user.id) or (current_user in course.lecturers)
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Not authorized to mark attendance for this course")
+    
+    # Check if student exists and is enrolled
+    student = db.query(User).filter(User.id == attendance_in.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    if student not in course.students:
+        raise HTTPException(status_code=400, detail="Student is not enrolled in this course")
+
+    # Check if already marked
+    existing = db.query(Attendance).filter(
+        Attendance.student_id == student.id,
+        Attendance.session_id == session.id
+    ).first()
+    
+    if existing:
+        existing.status = attendance_in.status
+        existing.verification_method = VerificationMethod.manual_override
+        existing.timestamp = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_attendance = Attendance(
+        student_id=student.id,
+        session_id=session.id,
+        status=attendance_in.status,
+        verification_method=VerificationMethod.manual_override,
         timestamp=datetime.utcnow()
     )
     db.add(new_attendance)
