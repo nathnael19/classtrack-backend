@@ -27,3 +27,7 @@ class ClassSession(Base):
 
     course = relationship("Course", back_populates="sessions")
     attendances = relationship("Attendance", back_populates="session")
+
+    @property
+    def course_name(self) -> str:
+        return self.course.name if self.course else "Unknown Course"
