@@ -26,6 +26,7 @@ class UserOut(UserBase):
     id: int
     default_session_duration: int
     default_session_radius: int
+    department_name: Optional[str] = None
 
     class Config:
         from_attributes = True
