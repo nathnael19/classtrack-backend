@@ -11,6 +11,12 @@ class AttendanceMark(BaseModel):
     device_fingerprint: Optional[str] = None
     verification_method: VerificationMethod = VerificationMethod.qr_scan
 
+class ManualAttendanceMark(BaseModel):
+    session_id: int
+    student_id: int
+    status: AttendanceStatus = AttendanceStatus.present
+    note: Optional[str] = None
+
 class AttendanceOut(BaseModel):
     id: int
     session_id: int
