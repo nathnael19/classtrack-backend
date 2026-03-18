@@ -47,7 +47,14 @@ def get_sessions(
         course_ids = [c.id for c in current_user.enrolled_courses]
         query = query.filter(ClassSession.course_id.in_(course_ids))
     elif current_user.role == UserRole.lecturer:
-        query = query.filter(ClassSession.course.has(lecturer_id=current_user.id))
+        # Only see sessions owned by this lecturer
+        # Fallback for old sessions that don't have lecturer_id yet
+        query = query.filter(
+            or_(
+                ClassSession.lecturer_id == current_user.id,
+                (ClassSession.lecturer_id == None) & ClassSession.course.has(lecturer_id=current_user.id)
+            )
+        )
         
     if start_date:
         query = query.filter(ClassSession.start_time >= start_date)
@@ -99,39 +106,26 @@ def get_upcoming_sessions(
     
     return query.order_by(ClassSession.start_time.asc()).limit(10).all()
 
+from sqlalchemy import or_
+
 @router.get("/active-lecturer", response_model=ClassSessionOut)
 def get_active_lecturer_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Get the most recently started active session for the currently logged-in lecturer.
-    NOTE: This route must appear BEFORE /{session_id} to avoid being swallowed by it.
-    """
     now = datetime.utcnow()
-
-    print(f"DEBUG /active-lecturer: lecturer_id={current_user.id}, now={now}")
-
+    # Filter by direct lecturer_id OR fallback to course lead lecturer for old sessions
     session = db.query(ClassSession).filter(
-        ClassSession.course.has(lecturer_id=current_user.id),
+        or_(
+            ClassSession.lecturer_id == current_user.id,
+            (ClassSession.lecturer_id == None) & ClassSession.course.has(lecturer_id=current_user.id)
+        ),
         ClassSession.start_time <= now,
         ClassSession.end_time >= now
     ).order_by(ClassSession.start_time.desc()).first()
 
     if not session:
-        # Extra diagnostics: check if any session exists for this lecturer at all
-        any_session = db.query(ClassSession).filter(
-            ClassSession.course.has(lecturer_id=current_user.id)
-        ).order_by(ClassSession.start_time.desc()).first()
-
-        if any_session:
-            print(f"DEBUG: Latest session for lecturer: id={any_session.id}, start={any_session.start_time}, end={any_session.end_time}")
-        else:
-            print("DEBUG: No sessions found for this lecturer at all.")
-
         raise HTTPException(status_code=404, detail="No active session found")
-
-    print(f"DEBUG: Found active session id={session.id}")
     return session
 
 @router.post("/", response_model=ClassSessionOut, status_code=status.HTTP_201_CREATED)
@@ -147,10 +141,12 @@ def create_session(
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
     
-    if course.lecturer_id != current_user.id:
+    # Check if user is lead lecturer OR one of the assigned lecturers
+    is_authorized = (course.lecturer_id == current_user.id) or (current_user in course.lecturers)
+    if not is_authorized:
         raise HTTPException(status_code=403, detail="Not authorized to create sessions for this course")
 
-    db_session = ClassSession(**session_in.dict())
+    db_session = ClassSession(**session_in.dict(), lecturer_id=current_user.id)
     db.add(db_session)
     db.commit()
     db.refresh(db_session)
