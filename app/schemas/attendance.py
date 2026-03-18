@@ -26,3 +26,11 @@ class AttendanceOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class AttendanceSummary(BaseModel):
+    percent: float
+    status: str
+    message: str
+    total_classes: int
+    present_count: int
+    absent_count: int
