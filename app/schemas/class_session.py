@@ -30,6 +30,7 @@ class ClassSessionCreate(ClassSessionBase):
 class ClassSessionOut(ClassSessionBase):
     id: int
     course_id: int
+    lecturer_id: Optional[int] = None
     course_name: Optional[str] = None
     lecturer_name: Optional[str] = None
 
