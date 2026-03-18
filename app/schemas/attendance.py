@@ -37,3 +37,4 @@ class AttendanceSummary(BaseModel):
     total_classes: int
     present_count: int
     absent_count: int
+    weekly_stats: List[float] = [] # Last 5 weeks percentages
