@@ -27,6 +27,8 @@ class ClassSession(Base):
 
     course = relationship("Course", back_populates="sessions")
     attendances = relationship("Attendance", back_populates="session")
+    lecturer_id = Column(Integer, ForeignKey("users.id"))
+    lecturer = relationship("User")
 
     @property
     def course_name(self) -> str:
@@ -34,4 +36,4 @@ class ClassSession(Base):
 
     @property
     def lecturer_name(self) -> str:
-        return self.course.lecturer.full_name if self.course and self.course.lecturer else "N/A"
+        return self.lecturer.name if self.lecturer else (self.course.lecturer.name if self.course and self.course.lecturer else "N/A")
