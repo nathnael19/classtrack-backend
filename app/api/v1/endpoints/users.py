@@ -53,6 +53,8 @@ def update_user_me(
         current_user.default_session_duration = obj_in.default_session_duration
     if obj_in.default_session_radius is not None:
         current_user.default_session_radius = obj_in.default_session_radius
+    if obj_in.department_id is not None:
+        current_user.department_id = obj_in.department_id
         
     db.add(current_user)
     db.commit()
