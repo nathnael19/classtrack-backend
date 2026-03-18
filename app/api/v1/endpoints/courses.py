@@ -17,7 +17,10 @@ def get_courses(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(Course).filter(Course.lecturer_id == current_user.id).all()
+    if current_user.role == UserRole.lecturer:
+        return db.query(Course).filter(Course.lecturer_id == current_user.id).all()
+    # For students, return enrolled courses
+    return current_user.enrolled_courses
 
 @router.post("/", response_model=CourseOut, status_code=status.HTTP_201_CREATED)
 def create_course(
