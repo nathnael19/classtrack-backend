@@ -87,7 +87,7 @@ def mark_attendance(
         Attendance.session_id == attendance.session_id
     ).first()
     if existing:
-        return existing
+        raise HTTPException(status_code=400, detail="Attendance already recorded for this session.")
 
     new_attendance = Attendance(
         student_id=current_user.id,
