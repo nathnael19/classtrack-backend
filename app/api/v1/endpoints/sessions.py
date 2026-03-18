@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from ....db.session import get_db
@@ -37,9 +37,24 @@ def mark_absentees(session: ClassSession, db: Session):
 @router.get("/", response_model=List[ClassSessionOut])
 def get_sessions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None)
 ):
-    return db.query(ClassSession).all()
+    query = db.query(ClassSession)
+    
+    if current_user.role == UserRole.student:
+        course_ids = [c.id for c in current_user.enrolled_courses]
+        query = query.filter(ClassSession.course_id.in_(course_ids))
+    elif current_user.role == UserRole.lecturer:
+        query = query.filter(ClassSession.course.has(lecturer_id=current_user.id))
+        
+    if start_date:
+        query = query.filter(ClassSession.start_time >= start_date)
+    if end_date:
+        query = query.filter(ClassSession.end_time <= end_date)
+        
+    return query.order_by(ClassSession.start_time.asc()).all()
 
 # ⚠️ IMPORTANT: Specific string routes MUST come BEFORE wildcard /{session_id} routes
 @router.get("/active", response_model=List[ClassSessionOut])
