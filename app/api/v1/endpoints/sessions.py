@@ -13,8 +13,30 @@ from ....schemas.class_session import ClassSessionCreate, ClassSessionOut, Sessi
 from .users import get_current_user
 from fastapi import WebSocket
 from ....services.websocket_manager import manager
+from sqlalchemy import select, and_, or_
+from ....models.enrollment import enrollment_association
 
 router = APIRouter()
+
+def apply_student_session_filter(query, current_user, db):
+    enrollments = db.execute(
+        select(enrollment_association.c.course_id, enrollment_association.c.section)
+        .where(enrollment_association.c.user_id == current_user.id)
+    ).fetchall()
+    
+    if not enrollments:
+        # filter(False) isn't standard in all SQLAlchemy versions, better to use an impossible condition
+        from sqlalchemy import false
+        return query.filter(false())
+        
+    conditions = []
+    for course_id, section in enrollments:
+        condition = and_(
+            ClassSession.course_id == course_id,
+            or_(ClassSession.section.is_(None), ClassSession.section == section, ClassSession.section == "")
+        )
+        conditions.append(condition)
+    return query.filter(or_(*conditions))
 
 @router.websocket("/{session_id}/ws")
 async def session_websocket(websocket: WebSocket, session_id: int):
@@ -50,6 +72,14 @@ def get_session_students(
     # Get all enrolled students
     students = course.students
     
+    # Get sections for students in this course
+    enrollment_sections = {
+        row.user_id: row.section for row in db.execute(
+            select(enrollment_association.c.user_id, enrollment_association.c.section)
+            .where(enrollment_association.c.course_id == course.id)
+        ).fetchall()
+    }
+
     # Get all attendance records for this session
     attendance_map = {
         a.student_id: a for a in db.query(Attendance).filter(Attendance.session_id == session_id).all()
@@ -63,7 +93,8 @@ def get_session_students(
             "name": s.name,
             "student_id": s.student_id,
             "status": att.status.value if att else None,
-            "timestamp": att.timestamp if att else None
+            "timestamp": att.timestamp if att else None,
+            "section": enrollment_sections.get(s.id)
         })
     
     return result
@@ -118,8 +149,7 @@ def get_sessions(
     query = db.query(ClassSession)
     
     if current_user.role == UserRole.student:
-        course_ids = [c.id for c in current_user.enrolled_courses]
-        query = query.filter(ClassSession.course_id.in_(course_ids))
+        query = apply_student_session_filter(query, current_user, db)
     elif current_user.role == UserRole.lecturer:
         # Only see sessions owned by this lecturer
         # Fallback for old sessions that don't have lecturer_id yet
@@ -165,9 +195,8 @@ def get_active_sessions(
     )
     
     if current_user.role == UserRole.student:
-        # Filter sessions for courses the student is enrolled in
-        course_ids = [c.id for c in current_user.enrolled_courses]
-        query = query.filter(ClassSession.course_id.in_(course_ids))
+        # Filter sessions for courses the student is enrolled in by section
+        query = apply_student_session_filter(query, current_user, db)
     
     sessions = query.all()
     
@@ -185,8 +214,7 @@ def get_upcoming_sessions(
     query = db.query(ClassSession).filter(ClassSession.start_time > now)
     
     if current_user.role == UserRole.student:
-        course_ids = [c.id for c in current_user.enrolled_courses]
-        query = query.filter(ClassSession.course_id.in_(course_ids))
+        query = apply_student_session_filter(query, current_user, db)
     
     sessions = query.order_by(ClassSession.start_time.asc()).limit(10).all()
     
