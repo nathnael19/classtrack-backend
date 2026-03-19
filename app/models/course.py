@@ -36,6 +36,7 @@ class Course(Base):
     lecturers = relationship("User", secondary=course_lecturer_association, backref="teaching_courses")
     
     sessions = relationship("ClassSession", back_populates="course")
+    schedules = relationship("CourseSchedule", back_populates="course")
     students = relationship("User", secondary=enrollment_association, backref="enrolled_courses")
 
     @hybrid_property
