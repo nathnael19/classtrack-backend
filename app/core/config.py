@@ -12,5 +12,10 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./classtrack.db")
+    
+    # Static files and uploads
+    STATIC_DIR: str = os.path.join(os.getcwd(), "static")
+    UPLOADS_DIR: str = os.path.join(STATIC_DIR, "uploads")
+    STATIC_URL_PREFIX: str = "/static"
 
 settings = Settings()
