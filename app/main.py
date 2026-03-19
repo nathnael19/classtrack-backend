@@ -4,7 +4,11 @@ from .api.v1.api import api_router
 from .db.session import engine, get_db
 from .db import base
 from .core.config import settings
+from .core.limiter import limiter
 from contextlib import asynccontextmanager
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 print(f"Server starting with DATABASE_URL: {settings.DATABASE_URL}")
 
@@ -12,6 +16,9 @@ print(f"Server starting with DATABASE_URL: {settings.DATABASE_URL}")
 base.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ClassTrack API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
