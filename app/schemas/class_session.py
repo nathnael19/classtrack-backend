@@ -14,6 +14,7 @@ class ClassSessionBase(BaseModel):
     status: SessionStatus = SessionStatus.scheduled
     topic: Optional[str] = None
     notes: Optional[str] = None
+    section: Optional[str] = None
 
     @field_validator('start_time', 'end_time', mode='before')
     @classmethod
@@ -41,6 +42,7 @@ class SessionStudentOut(BaseModel):
     student_id: Optional[str] = None  # Student code (e.g. S-1001)
     status: Optional[str] = None     # present, late, absent, or None
     timestamp: Optional[datetime] = None
+    section: Optional[str] = None
 
     class Config:
         from_attributes = True
