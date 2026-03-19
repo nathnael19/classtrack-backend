@@ -9,6 +9,8 @@ from ....models.attendance import Attendance
 from ....models.user import User, UserRole
 from ....schemas.course import CourseCreate, CourseOut, CourseDetailOut, EnrollmentRequest, StudentActivityOut
 from .users import get_current_user
+from sqlalchemy import insert, select
+from ....models.enrollment import enrollment_association
 
 router = APIRouter()
 
@@ -63,6 +65,14 @@ def get_course(
     student_activities = []
     total_attendance_sum = 0
     
+    # Get sections for students in this course
+    enrollment_sections = {
+        row.user_id: row.section for row in db.execute(
+            select(enrollment_association.c.user_id, enrollment_association.c.section)
+            .where(enrollment_association.c.course_id == course_id)
+        ).fetchall()
+    }
+
     for student in course.students:
         # Count attendance for this student in this course's sessions
         attendance_count = db.query(Attendance).filter(
@@ -95,7 +105,8 @@ def get_course(
             total_sessions=total_sessions,
             attendance_rate=attendance_rate,
             last_seen=last_attendance.timestamp if last_attendance else None,
-            status=status
+            status=status,
+            section=enrollment_sections.get(student.id)
         ))
         total_attendance_sum += attendance_rate
 
@@ -149,10 +160,29 @@ def enroll_students(
             db.add(student)
             db.flush() # Get the ID
 
-        # Link to course if not already linked
-        if student not in course.students:
-            course.students.append(student)
+        # Link to course with section
+        from sqlalchemy import update
+        enrollment = db.execute(
+            enrollment_association.select().where(
+                (enrollment_association.c.user_id == student.id) &
+                (enrollment_association.c.course_id == course_id)
+            )
+        ).first()
+
+        if not enrollment:
+            stmt = insert(enrollment_association).values(
+                user_id=student.id,
+                course_id=course_id,
+                section=student_data.section
+            )
+            db.execute(stmt)
             added_count += 1
+        elif enrollment.section != student_data.section:
+            stmt = update(enrollment_association).where(
+                (enrollment_association.c.user_id == student.id) &
+                (enrollment_association.c.course_id == course_id)
+            ).values(section=student_data.section)
+            db.execute(stmt)
 
     db.commit()
     return {"message": f"Successfully enrolled {added_count} students", "total_enrolled": len(course.students)}
