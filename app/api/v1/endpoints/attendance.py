@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
@@ -16,6 +16,8 @@ from ....schemas.class_session import ClassSessionOut
 from ....schemas.course import CourseOut
 from ....models.course import Course
 from .users import get_current_user
+from ....core.limiter import limiter
+from ....services.websocket_manager import manager
 
 router = APIRouter()
 
@@ -35,7 +37,9 @@ def get_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 @router.post("/mark", response_model=AttendanceOut)
-def mark_attendance(
+@limiter.limit("5/minute")
+async def mark_attendance(
+    request: Request,
     attendance: AttendanceMark,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -99,6 +103,19 @@ def mark_attendance(
     db.add(new_attendance)
     db.commit()
     db.refresh(new_attendance)
+
+    # Broadcast update via WebSocket
+    await manager.broadcast_to_session(attendance.session_id, {
+        "type": "attendance_recorded",
+        "student": {
+            "id": current_user.id,
+            "name": current_user.name,
+            "student_id": current_user.student_id,
+            "status": status.value,
+            "timestamp": new_attendance.timestamp.isoformat()
+        }
+    })
+
     return new_attendance
 
 @router.post("/manual", response_model=AttendanceOut)
