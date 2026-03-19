@@ -2,20 +2,17 @@ name: Backend CI
 
 on:
   push:
-    branches: [ main, master ]
-    paths:
-      - 'backend/**'
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
-    paths:
-      - 'backend/**'
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+
+    env:
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/classtrack_test
+      SECRET_KEY: test_secret_key
 
     services:
       postgres:
@@ -35,6 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -45,19 +45,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest httpx
 
-      - name: Lint with flake8
+      - name: Wait for Postgres
         run: |
-          pip install flake8
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          until pg_isready -h localhost -p 5432; do
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Lint
+        run: flake8 .
 
       - name: Run tests
-        env:
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/classtrack_test
-          SECRET_KEY: test_secret_key
-        run: |
-          pytest
+        run: pytest -v --maxfail=1 --disable-warnings
