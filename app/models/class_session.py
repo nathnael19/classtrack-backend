@@ -24,6 +24,7 @@ class ClassSession(Base):
     status = Column(Enum(SessionStatus), default=SessionStatus.scheduled)
     topic = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
+    section = Column(String, nullable=True)
 
     course = relationship("Course", back_populates="sessions")
     attendances = relationship("Attendance", back_populates="session")
