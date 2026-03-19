@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
+import shutil
+import os
+import uuid
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -8,7 +11,7 @@ from ....core.config import settings
 
 from ....models.user import User
 from ....schemas.user import UserOut, UserUpdate
-from ....core.security import get_password_hash
+from ....core.security import get_password_hash, verify_password
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/token")
@@ -70,4 +73,49 @@ def update_user_me(
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
+    return current_user
+
+@router.post("/me/profile-picture", response_model=UserOut)
+async def upload_profile_picture(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Validate file type
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be an image"
+        )
+    
+    # Generate unique filename
+    file_extension = os.path.splitext(file.filename)[1]
+    if not file_extension:
+        # Fallback for some image types
+        if file.content_type == "image/jpeg": file_extension = ".jpg"
+        elif file.content_type == "image/png": file_extension = ".png"
+        else: file_extension = ".png"
+
+    filename = f"{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(settings.UPLOADS_DIR, filename)
+    
+    # Save file
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_MESSAGE,
+            detail=f"Could not save file: {str(e)}"
+        )
+    finally:
+        file.file.close()
+    
+    # Update user profile_picture_url
+    # Store relative URL
+    current_user.profile_picture_url = f"{settings.STATIC_URL_PREFIX}/uploads/{filename}"
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    
     return current_user
