@@ -11,8 +11,22 @@ from ....models.course import Course
 from ....models.user import User, UserRole
 from ....schemas.class_session import ClassSessionCreate, ClassSessionOut, SessionStudentOut
 from .users import get_current_user
+from fastapi import WebSocket
+from ....services.websocket_manager import manager
 
 router = APIRouter()
+
+@router.websocket("/{session_id}/ws")
+async def session_websocket(websocket: WebSocket, session_id: int):
+    await manager.connect(websocket, session_id)
+    try:
+        while True:
+            # Keep connection alive, listen for any client messages (optional)
+            await websocket.receive_text()
+    except Exception:
+        pass
+    finally:
+        manager.disconnect(websocket, session_id)
 
 @router.get("/{session_id}/students", response_model=List[SessionStudentOut])
 def get_session_students(
