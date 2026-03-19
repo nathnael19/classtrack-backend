@@ -172,10 +172,11 @@ def enroll_students(
         ).first()
 
         if not existing_enrollment:
+            section_to_enroll = student_data.section or student.section
             stmt = insert(enrollment_association).values(
                 user_id=student.id,
                 course_id=course_id,
-                section=student_data.section
+                section=section_to_enroll
             )
             db.execute(stmt)
             added_count += 1
