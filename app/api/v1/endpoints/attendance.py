@@ -16,6 +16,8 @@ from ....schemas.class_session import ClassSessionOut
 from ....schemas.course import CourseOut
 from ....models.course import Course
 from .users import get_current_user
+from sqlalchemy import select
+from ....models.enrollment import enrollment_association
 from ....core.limiter import limiter
 from ....services.websocket_manager import manager
 
@@ -94,6 +96,16 @@ async def mark_attendance(
     if existing:
         raise HTTPException(status_code=400, detail="Attendance already recorded for this session.")
 
+    # Fetch section for this student in this course
+    enrollment = db.execute(
+        select(enrollment_association.c.section)
+        .where(
+            (enrollment_association.c.user_id == current_user.id) &
+            (enrollment_association.c.course_id == session.course_id)
+        )
+    ).first()
+    section = enrollment.section if enrollment else None
+
     new_attendance = Attendance(
         student_id=current_user.id,
         session_id=attendance.session_id,
@@ -113,7 +125,8 @@ async def mark_attendance(
             "student_id": current_user.student_id,
             "status": status.value,
             "timestamp": new_attendance.timestamp.isoformat(),
-            "attendance_id": new_attendance.id
+            "attendance_id": new_attendance.id,
+            "section": section
         }
     })
 
@@ -160,6 +173,16 @@ async def manual_mark_attendance(
         db.refresh(existing)
         return existing
 
+    # Fetch section
+    enrollment = db.execute(
+        select(enrollment_association.c.section)
+        .where(
+            (enrollment_association.c.user_id == student.id) &
+            (enrollment_association.c.course_id == session.course_id)
+        )
+    ).first()
+    section = enrollment.section if enrollment else None
+
     new_attendance = Attendance(
         student_id=student.id,
         session_id=session.id,
@@ -182,7 +205,8 @@ async def manual_mark_attendance(
             "student_id": student.student_id,
             "status": new_attendance.status.value,
             "timestamp": new_attendance.timestamp.isoformat(),
-            "attendance_id": new_attendance.id
+            "attendance_id": new_attendance.id,
+            "section": section
         }
     }))
 
@@ -212,6 +236,19 @@ def get_session_attendance(
         raise HTTPException(status_code=403, detail="Not authorized to view this session's attendance")
         
     records = db.query(Attendance).filter(Attendance.session_id == session_id).all()
+    
+    # Add sections to records
+    # Fetch sections for all students in this course
+    sections_map = {
+        row.user_id: row.section for row in db.execute(
+            select(enrollment_association.c.user_id, enrollment_association.c.section)
+            .where(enrollment_association.c.course_id == session.course_id)
+        ).fetchall()
+    }
+    
+    for record in records:
+        record.section = sections_map.get(record.student_id)
+        
     return records
 
 from datetime import datetime, timedelta
