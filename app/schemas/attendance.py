@@ -25,6 +25,7 @@ class AttendanceOut(BaseModel):
     student_code: Optional[str] = None
     timestamp: datetime
     status: AttendanceStatus
+    section: Optional[str] = None
     course_name: Optional[str] = None
     session_topic: Optional[str] = None
     room: Optional[str] = None
