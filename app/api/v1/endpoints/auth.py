@@ -46,6 +46,7 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
             placeholder.email = user.email
             placeholder.hashed_password = hashed_password
             placeholder.department_id = user.department_id
+            placeholder.section = user.section
             db.add(placeholder)
             db.commit()
             db.refresh(placeholder)
@@ -58,7 +59,8 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
         hashed_password=hashed_password,
         role=user.role,
         student_id=user.student_id,
-        department_id=user.department_id
+        department_id=user.department_id,
+        section=user.section
     )
     db.add(new_user)
     db.commit()
