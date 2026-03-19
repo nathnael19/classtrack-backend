@@ -25,6 +25,7 @@ class CourseOut(CourseBase):
 class StudentEnroll(BaseModel):
     name: str
     student_id: str
+    section: Optional[str] = None
 
 class EnrollmentRequest(BaseModel):
     students: List[StudentEnroll]
@@ -38,6 +39,7 @@ class StudentActivityOut(BaseModel):
     attendance_rate: float
     last_seen: Optional[datetime] = None
     status: str # 'Consistent', 'At Risk', 'Inactive'
+    section: Optional[str] = None
 
 class CourseDetailOut(CourseOut):
     students: List[StudentActivityOut]
