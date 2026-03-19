@@ -10,3 +10,4 @@ from ..models.term import Term
 from ..models.device_fingerprint import DeviceFingerprint
 from ..models.leave_request import LeaveRequest
 from ..models.notification import Notification
+from ..models.course_schedule import CourseSchedule
