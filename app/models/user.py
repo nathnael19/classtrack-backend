@@ -66,6 +66,7 @@ class User(Base):
     department = relationship("Department", back_populates="users")
     lecturer_courses = relationship("Course", back_populates="lecturer", foreign_keys="[Course.lecturer_id]")
     attendances = relationship("Attendance", back_populates="student")
+    schedules = relationship("CourseSchedule", back_populates="lecturer")
 
     @property
     def department_name(self):
