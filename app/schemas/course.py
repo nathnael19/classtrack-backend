@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+from .course_schedule import CourseScheduleOut
 
 class CourseBase(BaseModel):
     name: str
@@ -43,5 +44,6 @@ class StudentActivityOut(BaseModel):
 
 class CourseDetailOut(CourseOut):
     students: List[StudentActivityOut]
+    schedules: List[CourseScheduleOut]
     total_sessions: int
     average_attendance: float
