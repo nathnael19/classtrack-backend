@@ -24,6 +24,7 @@ class User(Base):
     hashed_password = Column(String)
     role = Column(Enum(UserRole), default=UserRole.student)
     student_id = Column(String, unique=True, nullable=True)
+    section = Column(String, nullable=True) # Default section for students
     
     # Extended Student Fields
     enrollment_year = Column(Integer, nullable=True)
