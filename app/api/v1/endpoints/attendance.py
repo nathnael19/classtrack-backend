@@ -112,14 +112,15 @@ async def mark_attendance(
             "name": current_user.name,
             "student_id": current_user.student_id,
             "status": status.value,
-            "timestamp": new_attendance.timestamp.isoformat()
+            "timestamp": new_attendance.timestamp.isoformat(),
+            "attendance_id": new_attendance.id
         }
     })
 
     return new_attendance
 
 @router.post("/manual", response_model=AttendanceOut)
-def manual_mark_attendance(
+async def manual_mark_attendance(
     attendance_in: ManualAttendanceMark,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -169,6 +170,22 @@ def manual_mark_attendance(
     db.add(new_attendance)
     db.commit()
     db.refresh(new_attendance)
+
+    # Broadcast update via WebSocket
+    # We use a background task to not block the response
+    import asyncio
+    asyncio.create_task(manager.broadcast_to_session(session.id, {
+        "type": "attendance_recorded",
+        "student": {
+            "id": student.id,
+            "name": student.name,
+            "student_id": student.student_id,
+            "status": new_attendance.status.value,
+            "timestamp": new_attendance.timestamp.isoformat(),
+            "attendance_id": new_attendance.id
+        }
+    }))
+
     return new_attendance
 
 @router.get("/history", response_model=List[AttendanceOut])
