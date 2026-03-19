@@ -9,7 +9,9 @@ from ....models.attendance import Attendance
 from ....models.user import User, UserRole
 from ....schemas.course import CourseCreate, CourseOut, CourseDetailOut, EnrollmentRequest, StudentActivityOut
 from .users import get_current_user
-from sqlalchemy import insert, select
+from ....models.course_schedule import CourseSchedule
+from ....schemas.course_schedule import CourseScheduleCreate, CourseScheduleOut
+from sqlalchemy import insert, select, update
 from ....models.enrollment import enrollment_association
 
 router = APIRouter()
@@ -121,7 +123,8 @@ def get_course(
         student_count=len(course.students),
         total_sessions=total_sessions,
         average_attendance=avg_attendance,
-        students=student_activities
+        students=student_activities,
+        schedules=course.schedules
     )
 
 @router.post("/{course_id}/enroll", status_code=status.HTTP_200_OK)
@@ -161,15 +164,14 @@ def enroll_students(
             db.flush() # Get the ID
 
         # Link to course with section
-        from sqlalchemy import update
-        enrollment = db.execute(
+        existing_enrollment = db.execute(
             enrollment_association.select().where(
                 (enrollment_association.c.user_id == student.id) &
                 (enrollment_association.c.course_id == course_id)
             )
         ).first()
 
-        if not enrollment:
+        if not existing_enrollment:
             stmt = insert(enrollment_association).values(
                 user_id=student.id,
                 course_id=course_id,
@@ -177,7 +179,7 @@ def enroll_students(
             )
             db.execute(stmt)
             added_count += 1
-        elif enrollment.section != student_data.section:
+        elif existing_enrollment.section != student_data.section:
             stmt = update(enrollment_association).where(
                 (enrollment_association.c.user_id == student.id) &
                 (enrollment_association.c.course_id == course_id)
@@ -186,3 +188,51 @@ def enroll_students(
 
     db.commit()
     return {"message": f"Successfully enrolled {added_count} students", "total_enrolled": len(course.students)}
+
+@router.post("/{course_id}/schedules", response_model=CourseScheduleOut, status_code=status.HTTP_201_CREATED)
+def create_course_schedule(
+    course_id: int,
+    schedule_in: CourseScheduleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.lecturer:
+        raise HTTPException(status_code=403, detail="Only lecturers can manage schedules")
+    
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    if course.lecturer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to manage this course")
+    
+    db_schedule = CourseSchedule(
+        **schedule_in.dict(),
+        course_id=course_id,
+        lecturer_id=current_user.id
+    )
+    db.add(db_schedule)
+    db.commit()
+    db.refresh(db_schedule)
+    return db_schedule
+
+@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_course_schedule(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.lecturer:
+        raise HTTPException(status_code=403, detail="Only lecturers can manage schedules")
+    
+    schedule = db.query(CourseSchedule).filter(CourseSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    if schedule.lecturer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to manage this schedule")
+    
+    db.delete(schedule)
+    db.commit()
+    return None
+
