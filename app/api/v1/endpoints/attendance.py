@@ -110,7 +110,11 @@ async def mark_attendance(
         student_id=current_user.id,
         session_id=attendance.session_id,
         status=status,
-        timestamp=datetime.utcnow()
+        timestamp=datetime.utcnow(),
+        location_lat=attendance.latitude,
+        location_lng=attendance.longitude,
+        device_fingerprint=attendance.device_fingerprint,
+        verification_method=attendance.verification_method,
     )
     db.add(new_attendance)
     db.commit()
