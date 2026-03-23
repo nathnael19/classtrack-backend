@@ -54,6 +54,7 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
             return placeholder
 
     # Create new user if no placeholder found or if role is lecturer
+    org_id = getattr(user, "organization_id", None)
     new_user = User(
         name=user.name,
         email=user.email,
@@ -61,7 +62,8 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
         role=user.role,
         student_id=user.student_id,
         department_id=user.department_id,
-        section=user.section
+        section=user.section,
+        organization_id=org_id,
     )
     db.add(new_user)
     db.commit()
