@@ -63,6 +63,10 @@ class User(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     last_active_at = Column(DateTime, nullable=True)
 
+    # Password Setup Fields
+    setup_password_token = Column(String, unique=True, index=True, nullable=True)
+    setup_password_expires_at = Column(DateTime, nullable=True)
+
     organization = relationship("Organization", back_populates="users")
     department = relationship("Department", back_populates="users")
     lecturer_courses = relationship("Course", back_populates="lecturer", foreign_keys="[Course.lecturer_id]")
