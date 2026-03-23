@@ -199,3 +199,68 @@ def create_user_admin(
     send_setup_password_email(new_user.email, setup_token)
     
     return new_user
+
+@router.get("/{user_id}", response_model=UserOut)
+def get_user_admin(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@router.put("/{user_id}", response_model=UserOut)
+def update_user_admin(
+    user_id: int,
+    obj_in: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if obj_in.name is not None:
+        user.name = obj_in.name
+    if obj_in.email is not None:
+        user.email = obj_in.email
+    if obj_in.role is not None:
+        user.role = obj_in.role
+    if obj_in.state is not None:
+        user.state = obj_in.state
+    if obj_in.department_id is not None:
+        user.department_id = obj_in.department_id
+        
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_admin(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent self-deletion
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot purge your own identity")
+        
+    db.delete(user)
+    db.commit()
+    return None
