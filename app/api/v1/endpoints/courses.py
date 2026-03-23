@@ -34,13 +34,18 @@ def create_course(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role != UserRole.lecturer:
-        raise HTTPException(status_code=403, detail="Only lecturers can create courses")
+    if current_user.role not in [UserRole.lecturer, UserRole.admin]:
+        raise HTTPException(status_code=403, detail="Not authorized to create courses")
     
     db_course = Course(
         name=course_in.name,
         code=course_in.code,
-        lecturer_id=current_user.id
+        description=course_in.description,
+        term_id=course_in.term_id,
+        department_id=course_in.department_id,
+        credit_hours=course_in.credit_hours,
+        is_active=course_in.is_active,
+        lecturer_id=current_user.id if current_user.role == UserRole.lecturer else None
     )
     db.add(db_course)
     db.commit()
