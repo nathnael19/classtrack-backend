@@ -1,7 +1,18 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from ..models.user import User
-import requests # Placeholder for real FCM HTTP v1 API
+from ..models.notification import Notification
+import requests  # Placeholder for real FCM HTTP v1 API
+
+
+def create_notification(db: Session, user_id: int, title: str, message: str) -> Notification:
+    """Create an in-app notification for a user. Used by backend services only."""
+    notif = Notification(user_id=user_id, title=title, message=message)
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+    return notif
+
 
 class NotificationService:
     @staticmethod
