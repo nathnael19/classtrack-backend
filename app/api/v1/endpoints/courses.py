@@ -21,6 +21,8 @@ def get_courses(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if current_user.role == UserRole.admin:
+        return db.query(Course).all()
     if current_user.role == UserRole.lecturer:
         return db.query(Course).filter(Course.lecturer_id == current_user.id).all()
     # For students, return enrolled courses
