@@ -3,6 +3,7 @@ from typing import Optional
 
 class DepartmentBase(BaseModel):
     name: str
+    organization_id: Optional[int] = None
 
 class DepartmentCreate(DepartmentBase):
     pass
