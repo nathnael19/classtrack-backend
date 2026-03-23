@@ -10,6 +10,7 @@ class UserBase(BaseModel):
     student_id: Optional[str] = None
     profile_picture_url: Optional[str] = None
     department_id: Optional[int] = None
+    organization_id: Optional[int] = None
     section: Optional[str] = None
     last_active_at: Optional[datetime] = None
     
