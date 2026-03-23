@@ -5,7 +5,7 @@ from typing import List
 from ....db.session import get_db
 from ....models.term import Term
 from ....models.user import User, UserRole
-from ....schemas.term import TermCreate, TermOut
+from ....schemas.term import TermCreate, TermOut, TermUpdate
 from .users import get_current_user
 
 router = APIRouter()
@@ -29,6 +29,8 @@ def create_term(
     org_id = term_in.organization_id or current_user.organization_id
     db_term = Term(
         name=term_in.name,
+        year=term_in.year,
+        status=term_in.status,
         start_date=term_in.start_date,
         end_date=term_in.end_date,
         organization_id=org_id,
@@ -48,3 +50,25 @@ def get_term(
     if not term:
         raise HTTPException(status_code=404, detail="Term not found")
     return term
+
+@router.put("/{term_id}", response_model=TermOut)
+def update_term(
+    term_id: int,
+    term_in: TermUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Only admins can update terms")
+    
+    db_term = db.query(Term).filter(Term.id == term_id).first()
+    if not db_term:
+        raise HTTPException(status_code=404, detail="Term not found")
+    
+    update_data = term_in.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_term, field, value)
+    
+    db.commit()
+    db.refresh(db_term)
+    return db_term
