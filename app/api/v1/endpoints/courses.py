@@ -35,8 +35,8 @@ def create_course(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role not in [UserRole.lecturer, UserRole.admin]:
-        raise HTTPException(status_code=403, detail="Not authorized to create courses")
+    if current_user.role != UserRole.lecturer:
+        raise HTTPException(status_code=403, detail="Only lecturers can create courses")
     
     org_id = getattr(course_in, "organization_id", None) or current_user.organization_id
     db_course = Course(
