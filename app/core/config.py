@@ -17,5 +17,9 @@ class Settings:
     STATIC_DIR: str = os.path.join(os.getcwd(), "static")
     UPLOADS_DIR: str = os.path.join(STATIC_DIR, "uploads")
     STATIC_URL_PREFIX: str = "/static"
+    
+    # Resend Email Service
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 settings = Settings()
