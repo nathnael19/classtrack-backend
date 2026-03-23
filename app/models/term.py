@@ -7,6 +7,8 @@ class Term(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True) # e.g. Fall 2026
+    year = Column(String, nullable=True) # e.g. 2025/2026
+    status = Column(String, default="Upcoming") # Upcoming, Active, Completed
     start_date = Column(Date)
     end_date = Column(Date)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
