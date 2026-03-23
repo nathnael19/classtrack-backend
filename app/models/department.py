@@ -8,6 +8,9 @@ class Department(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
+    head = Column(String, nullable=True) # Head of Department
+    location = Column(String, nullable=True) # Physical location
+    description = Column(String, nullable=True) # Description/Vision
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
     organization = relationship("Organization", backref="departments")
