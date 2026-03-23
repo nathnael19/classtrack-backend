@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 from ....db.session import get_db
 from ....core.config import settings
 
-from ....models.user import User
-from ....schemas.user import UserOut, UserUpdate
+from ....models.user import User, UserRole
+from ....schemas.user import UserOut, UserUpdate, UserCreateAdmin
 from ....core.security import get_password_hash, verify_password
+from ....core.email import send_setup_password_email
+from datetime import datetime, timedelta
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/token")
@@ -119,3 +121,48 @@ async def upload_profile_picture(
     db.refresh(current_user)
     
     return current_user
+
+@router.post("/admin/create-user", response_model=UserOut)
+def create_user_admin(
+    user_in: UserCreateAdmin,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a new user by an admin. The user will not have a password set.
+    A setup token is generated and sent via email.
+    """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The user doesn't have enough privileges"
+        )
+    
+    # Check if user already exists
+    db_user = db.query(User).filter(User.email == user_in.email).first()
+    if db_user:
+        raise HTTPException(
+            status_code=400,
+            detail="A user with this email already exists"
+        )
+    
+    # Generate setup token
+    setup_token = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(hours=24)
+    
+    # Create user
+    new_user = User(
+        **user_in.dict(),
+        setup_password_token=setup_token,
+        setup_password_expires_at=expires_at,
+        hashed_password="!", # Place holder
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    # Send email
+    send_setup_password_email(new_user.email, setup_token)
+    
+    return new_user
