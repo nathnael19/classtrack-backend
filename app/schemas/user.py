@@ -84,3 +84,10 @@ class UserOut(UserBase):
     class Config:
         from_attributes = True
 
+class UserCreateAdmin(UserBase):
+    pass
+
+class PasswordSetupSchema(BaseModel):
+    token: str
+    new_password: str
+
