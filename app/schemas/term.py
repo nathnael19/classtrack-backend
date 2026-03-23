@@ -6,6 +6,7 @@ class TermBase(BaseModel):
     name: str
     start_date: date
     end_date: date
+    organization_id: Optional[int] = None
 
 class TermCreate(TermBase):
     pass
