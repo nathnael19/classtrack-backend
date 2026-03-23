@@ -9,6 +9,7 @@ class CourseBase(BaseModel):
     description: Optional[str] = None
     term_id: Optional[int] = None
     department_id: Optional[int] = None
+    organization_id: Optional[int] = None
     credit_hours: Optional[int] = None
     is_active: bool = True
 
@@ -42,8 +43,22 @@ class StudentActivityOut(BaseModel):
     status: str # 'Consistent', 'At Risk', 'Inactive'
     section: Optional[str] = None
 
+class LecturerBrief(BaseModel):
+    id: int
+    name: str
+    email: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AddLecturerRequest(BaseModel):
+    lecturer_id: int
+
+
 class CourseDetailOut(CourseOut):
     students: List[StudentActivityOut]
     schedules: List[CourseScheduleOut]
+    lecturers: List[LecturerBrief] = []
     total_sessions: int
     average_attendance: float
