@@ -25,8 +25,14 @@ def create_term(
 ):
     if current_user.role != UserRole.admin:
         raise HTTPException(status_code=403, detail="Only admins can create terms")
-    
-    db_term = Term(**term_in.dict())
+
+    org_id = term_in.organization_id or current_user.organization_id
+    db_term = Term(
+        name=term_in.name,
+        start_date=term_in.start_date,
+        end_date=term_in.end_date,
+        organization_id=org_id,
+    )
     db.add(db_term)
     db.commit()
     db.refresh(db_term)
