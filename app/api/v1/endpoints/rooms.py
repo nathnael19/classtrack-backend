@@ -6,7 +6,7 @@ from ....db.session import get_db
 from ....models.room import Room
 from ....schemas.room import RoomOut, RoomCreate
 from .users import get_current_user
-from ....models.user import User
+from ....models.user import User, UserRole
 
 router = APIRouter()
 
@@ -27,8 +27,10 @@ def create_room(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Provision a new facility (Admin/Staff only logic could be added here).
+    Provision a new facility. Restricted to admins only.
     """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Only admins can create rooms.")
     db_room = Room(**room_in.dict())
     db.add(db_room)
     db.commit()
