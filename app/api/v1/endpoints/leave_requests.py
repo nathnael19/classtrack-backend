@@ -16,9 +16,7 @@ router = APIRouter()
 
 
 def _can_review_leave_request(user: User, leave_request: LeaveRequest, db: Session) -> bool:
-    """Lecturers who teach the session's course or admins can review."""
-    if user.role == UserRole.admin:
-        return True
+    """Lecturers who teach the session's course can review."""
     if user.role != UserRole.lecturer:
         return False
     session = db.query(ClassSession).filter(ClassSession.id == leave_request.session_id).first()
@@ -41,8 +39,20 @@ def get_leave_requests(
         joinedload(LeaveRequest.student),
         joinedload(LeaveRequest.session).joinedload(ClassSession.course),
     )
-    if current_user.role.name == "student":
+    if current_user.role == UserRole.student:
         query = query.filter(LeaveRequest.student_id == current_user.id)
+    elif current_user.role == UserRole.lecturer:
+        # Filter for courses where the user is the lead or an assigned lecturer
+        from ....models.course import Course
+        query = query.join(ClassSession).join(Course).filter(
+            (Course.lecturer_id == current_user.id) |
+            (Course.lecturers.any(id=current_user.id))
+        )
+    else:
+        # Admins or other roles get no results for this specific view now
+        # as the user requested removing it from admin.
+        from sqlalchemy import false
+        query = query.filter(false())
     requests = query.all()
     result = []
     for req in requests:
