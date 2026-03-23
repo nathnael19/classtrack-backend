@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from ..db.session import Base
 
@@ -12,3 +13,11 @@ class Department(Base):
     organization = relationship("Organization", backref="departments")
     users = relationship("User", back_populates="department")
     courses = relationship("Course", back_populates="department")
+
+    @hybrid_property
+    def user_count(self) -> int:
+        return len(self.users)
+
+    @hybrid_property
+    def course_count(self) -> int:
+        return len(self.courses)
