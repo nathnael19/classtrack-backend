@@ -24,8 +24,9 @@ def create_department(
 ):
     if current_user.role != UserRole.admin:
         raise HTTPException(status_code=403, detail="Only admins can create departments")
-    
-    db_dept = Department(**dept_in.dict())
+
+    org_id = dept_in.organization_id or current_user.organization_id
+    db_dept = Department(name=dept_in.name, organization_id=org_id)
     db.add(db_dept)
     db.commit()
     db.refresh(db_dept)
