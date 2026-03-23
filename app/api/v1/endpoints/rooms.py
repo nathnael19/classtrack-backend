@@ -37,6 +37,20 @@ def create_room(
     db.refresh(db_room)
     return db_room
 
+@router.get("/{room_id}", response_model=RoomOut)
+def get_room(
+    room_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Fetch details for a specific facility.
+    """
+    db_room = db.query(Room).filter(Room.id == room_id).first()
+    if not db_room:
+        raise HTTPException(status_code=404, detail="Facility not found")
+    return db_room
+
 @router.put("/{room_id}", response_model=RoomOut)
 def update_room(
     room_id: int,
