@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query
+from typing import List, Optional
 import shutil
 import os
 import uuid
@@ -121,6 +122,38 @@ async def upload_profile_picture(
     db.refresh(current_user)
     
     return current_user
+
+@router.get("/", response_model=List[UserOut])
+def list_users(
+    skip: int = 0,
+    limit: int = 100,
+    role: Optional[UserRole] = None,
+    q: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    List users with filtering and search. Admin only.
+    """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The user doesn't have enough privileges"
+        )
+    
+    query = db.query(User)
+    
+    if role:
+        query = query.filter(User.role == role)
+    
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            (User.name.ilike(search)) | (User.email.ilike(search))
+        )
+    
+    users = query.offset(skip).limit(limit).all()
+    return users
 
 @router.post("/admin/create-user", response_model=UserOut)
 def create_user_admin(
