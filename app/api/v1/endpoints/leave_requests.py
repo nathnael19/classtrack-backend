@@ -6,9 +6,11 @@ from ....db.session import get_db
 from ....models.leave_request import LeaveRequest, LeaveRequestStatus
 from ....models.user import User, UserRole
 from ....models.class_session import ClassSession
+from ....models.attendance import Attendance, AttendanceStatus, VerificationMethod
 from ....schemas.leave_request import LeaveRequestCreate, LeaveRequestOut, LeaveRequestReview, LeaveRequestWithDetails
 from ....services.notifications import create_notification
 from .users import get_current_user
+from datetime import datetime
 
 router = APIRouter()
 
@@ -61,6 +63,30 @@ def create_leave_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # 1. Check if student is marked as ABSENT for this session
+    attendance = db.query(Attendance).filter(
+        Attendance.student_id == current_user.id,
+        Attendance.session_id == request_in.session_id
+    ).first()
+    
+    if not attendance or attendance.status != AttendanceStatus.absent:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Leave requests can only be submitted for sessions where you are marked as ABSENT."
+        )
+
+    # 2. Prevent duplicate requests
+    existing_req = db.query(LeaveRequest).filter(
+        LeaveRequest.student_id == current_user.id,
+        LeaveRequest.session_id == request_in.session_id
+    ).first()
+    
+    if existing_req:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A leave request already exists for this session."
+        )
+
     db_req = LeaveRequest(**request_in.dict(), student_id=current_user.id)
     db.add(db_req)
     db.commit()
@@ -93,6 +119,19 @@ def review_leave_request(
         raise HTTPException(status_code=403, detail="Not authorized to review this leave request")
     db_req.status = review_in.status
     db_req.reviewed_by = current_user.id
+    
+    # If approved, update attendance to present
+    if review_in.status == LeaveRequestStatus.approved:
+        attendance = db.query(Attendance).filter(
+            Attendance.student_id == db_req.student_id,
+            Attendance.session_id == db_req.session_id
+        ).first()
+        
+        if attendance:
+            attendance.status = AttendanceStatus.present
+            attendance.timestamp = datetime.utcnow()
+            attendance.verification_method = VerificationMethod.manual_override
+            
     db.commit()
     db.refresh(db_req)
 
