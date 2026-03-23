@@ -8,7 +8,8 @@ from ....core import security
 from ....core.config import settings
 
 from ....models.user import User, UserRole
-from ....schemas.user import UserCreate, UserOut
+from ....schemas.user import UserCreate, UserOut, PasswordSetupSchema
+from datetime import datetime
 from ....schemas.token import Token
 from ....core.limiter import limiter
 
@@ -100,3 +101,26 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     # Stub: In a real app, validate the token
     print(f"DEBUG: Email verification token received: {token}")
     return {"message": "Email verified successfully."}
+
+@router.post("/setup-password")
+def setup_password(data: PasswordSetupSchema, db: Session = Depends(get_db)):
+    user = db.query(User).filter(
+        User.setup_password_token == data.token,
+        User.setup_password_expires_at > datetime.utcnow()
+    ).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired token"
+        )
+    
+    user.hashed_password = security.get_password_hash(data.new_password)
+    user.setup_password_token = None
+    user.setup_password_expires_at = None
+    user.is_verified = True # Mark as verified since they followed the email link
+    
+    db.add(user)
+    db.commit()
+    
+    return {"message": "Password set successfully"}
