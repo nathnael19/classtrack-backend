@@ -7,12 +7,13 @@ from ....models.course import Course
 from ....models.class_session import ClassSession
 from ....models.attendance import Attendance
 from ....models.user import User, UserRole
-from ....schemas.course import CourseCreate, CourseOut, CourseDetailOut, EnrollmentRequest, StudentActivityOut
+from ....schemas.course import CourseCreate, CourseOut, CourseDetailOut, EnrollmentRequest, StudentActivityOut, AddLecturerRequest
 from .users import get_current_user
 from ....models.course_schedule import CourseSchedule
 from ....schemas.course_schedule import CourseScheduleCreate, CourseScheduleOut
 from sqlalchemy import insert, select, update
 from ....models.enrollment import enrollment_association
+from ....models.course import course_lecturer_association
 
 router = APIRouter()
 
@@ -37,12 +38,14 @@ def create_course(
     if current_user.role not in [UserRole.lecturer, UserRole.admin]:
         raise HTTPException(status_code=403, detail="Not authorized to create courses")
     
+    org_id = getattr(course_in, "organization_id", None) or current_user.organization_id
     db_course = Course(
         name=course_in.name,
         code=course_in.code,
         description=course_in.description,
         term_id=course_in.term_id,
         department_id=course_in.department_id,
+        organization_id=org_id,
         credit_hours=course_in.credit_hours,
         is_active=course_in.is_active,
         lecturer_id=current_user.id if current_user.role == UserRole.lecturer else None
@@ -62,8 +65,13 @@ def get_course(
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
     
-    # Verify authorization
-    if course.lecturer_id != current_user.id:
+    # Verify authorization - lead lecturer or co-lecturer
+    is_authorized = (
+        course.lecturer_id == current_user.id
+        or current_user in course.lecturers
+        or current_user.role == UserRole.admin
+    )
+    if not is_authorized:
         raise HTTPException(status_code=403, detail="Not authorized to view this course")
 
     # Get sessions related to this course
@@ -121,7 +129,13 @@ def get_course(
 
     avg_attendance = (total_attendance_sum / len(course.students)) if course.students else 0
 
-    # Build the response
+    # Build lecturers list (exclude lead lecturer)
+    lecturers_data = [
+        {"id": u.id, "name": u.name, "email": u.email}
+        for u in course.lecturers
+        if u.id != course.lecturer_id
+    ]
+
     return CourseDetailOut(
         id=course.id,
         name=course.name,
@@ -131,7 +145,8 @@ def get_course(
         total_sessions=total_sessions,
         average_attendance=avg_attendance,
         students=student_activities,
-        schedules=course.schedules
+        schedules=course.schedules,
+        lecturers=lecturers_data,
     )
 
 @router.post("/{course_id}/enroll", status_code=status.HTTP_200_OK)
@@ -223,6 +238,57 @@ def create_course_schedule(
     db.commit()
     db.refresh(db_schedule)
     return db_schedule
+
+@router.post("/{course_id}/lecturers", status_code=status.HTTP_200_OK)
+def add_course_lecturer(
+    course_id: int,
+    body: AddLecturerRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a co-lecturer to a course. Only course owner or admin."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if current_user.role != UserRole.admin and course.lecturer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to manage this course")
+    lecturer = db.query(User).filter(User.id == body.lecturer_id).first()
+    if not lecturer:
+        raise HTTPException(status_code=404, detail="Lecturer not found")
+    if lecturer.role != UserRole.lecturer:
+        raise HTTPException(status_code=400, detail="User must have lecturer role")
+    if lecturer.id == course.lecturer_id:
+        raise HTTPException(status_code=400, detail="User is already the lead lecturer")
+    if lecturer in course.lecturers:
+        return {"message": "Lecturer already added"}
+    db.execute(insert(course_lecturer_association).values(course_id=course_id, lecturer_id=body.lecturer_id))
+    db.commit()
+    return {"message": "Lecturer added"}
+
+
+@router.delete("/{course_id}/lecturers/{lecturer_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_course_lecturer(
+    course_id: int,
+    lecturer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a co-lecturer from a course. Only course owner or admin."""
+    from sqlalchemy import delete as sql_delete
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if current_user.role != UserRole.admin and course.lecturer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to manage this course")
+    db.execute(
+        sql_delete(course_lecturer_association).where(
+            course_lecturer_association.c.course_id == course_id,
+            course_lecturer_association.c.lecturer_id == lecturer_id,
+        )
+    )
+    db.commit()
+    return None
+
 
 @router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_course_schedule(
