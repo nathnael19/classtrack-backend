@@ -13,6 +13,7 @@ class CourseMaterial(Base):
     original_filename = Column(String, nullable=True) # E.g., 'lecture_01.pdf'
     file_type = Column(String) # e.g., 'pdf', 'docx', 'image/png'
     file_size = Column(Integer) # in bytes
+    folder_name = Column(String, nullable=True, default="General") # e.g. "Week 1", "Syllabus"
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"))
     uploader_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
