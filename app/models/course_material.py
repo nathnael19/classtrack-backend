@@ -10,6 +10,7 @@ class CourseMaterial(Base):
     title = Column(String, index=True)
     description = Column(Text, nullable=True)
     file_path = Column(String) # Relative to static/uploads
+    original_filename = Column(String, nullable=True) # E.g., 'lecture_01.pdf'
     file_type = Column(String) # e.g., 'pdf', 'docx', 'image/png'
     file_size = Column(Integer) # in bytes
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"))
