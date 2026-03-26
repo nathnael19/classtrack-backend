@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import auth, users, attendance, courses, sessions, analytics, admin_analytics, rooms, organizations, departments, terms, device_fingerprints, leave_requests, notifications, schedules
+from .endpoints import auth, users, attendance, courses, sessions, analytics, admin_analytics, rooms, organizations, departments, terms, device_fingerprints, leave_requests, notifications, schedules, materials
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -17,3 +17,4 @@ api_router.include_router(device_fingerprints.router, prefix="/device_fingerprin
 api_router.include_router(leave_requests.router, prefix="/leave_requests", tags=["leave_requests"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(schedules.router, prefix="/schedules", tags=["schedules"])
+api_router.include_router(materials.router, prefix="/materials", tags=["materials"])
