@@ -75,14 +75,21 @@ async def mark_attendance(
         raise HTTPException(status_code=400, detail="Invalid or Expired QR Code")
     
     distance = get_distance(attendance.latitude, attendance.longitude, session.latitude, session.longitude)
-    # Add a 10m buffer to the geofence radius to account for minor GPS floating/jitter
-    if distance > (session.geofence_radius + 10):
+    
+    # Calculate dynamic buffer for poor indoor GPS (bunker effect)
+    # Give the student the benefit of the doubt up to their device's reported inaccuracy,
+    # or default to 50m if accuracy reading fails. Plus the official room radius.
+    reported_accuracy = attendance.accuracy if attendance.accuracy and attendance.accuracy > 0 else 50.0
+    
+    # Max allowed distance = (Room geofence radius) + (Phone's inaccuracy buffer) + (base 10m network variance)
+    max_allowed_distance = session.geofence_radius + reported_accuracy + 10
+    
+    if distance > max_allowed_distance:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Outside geofence area. Distance: {distance:.1f}m, Radius: {session.geofence_radius}m. "
-                f"Session coords: ({session.latitude:.6f}, {session.longitude:.6f}). "
-                f"Your coords: ({attendance.latitude:.6f}, {attendance.longitude:.6f})."
+                f"Outside geofence area. Distance: {distance:.1f}m. Max Allowed: {max_allowed_distance:.1f}m "
+                f"(including {reported_accuracy:.0f}m GPS variance). Please move closer or try near a window."
             )
         )
     
