@@ -54,9 +54,23 @@ async def upload_material(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to upload materials for this course"
         )
+        
+    # Security: Size Limit (50MB)
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    if file.size is not None and file.size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large. Maximum size is 50MB.")
     
     # Save file
-    file_extension = os.path.splitext(file.filename)[1]
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    
+    # Security: File Extension Allowlist
+    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.zip', '.png', '.jpg', '.jpeg', '.mp4'}
+    if file_extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+        
     filename = f"{uuid.uuid4()}{file_extension}"
     
     # Create course-specific directory for organization
