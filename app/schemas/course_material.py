@@ -5,6 +5,7 @@ from datetime import datetime
 class CourseMaterialBase(BaseModel):
     title: str
     description: Optional[str] = None
+    folder_name: Optional[str] = "General"
 
 class CourseMaterialCreate(CourseMaterialBase):
     course_id: int
