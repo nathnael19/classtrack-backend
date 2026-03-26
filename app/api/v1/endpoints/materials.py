@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -87,6 +88,7 @@ async def upload_material(
         title=title,
         description=description,
         file_path=relative_path,
+        original_filename=file.filename,
         file_type=file.content_type or "application/octet-stream",
         file_size=file_size,
         course_id=course_id,
@@ -152,3 +154,47 @@ def delete_material(
     db.delete(material)
     db.commit()
     return None
+
+@router.get("/{material_id}/download", response_class=FileResponse)
+def download_material(
+    material_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    material = db.query(CourseMaterial).filter(CourseMaterial.id == material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+        
+    course = db.query(Course).filter(Course.id == material.course_id).first()
+    
+    # Check permissions
+    is_lecturer = is_course_lecturer(current_user, course)
+    is_enrolled = is_student_enrolled(current_user, course)
+    
+    if current_user.role != UserRole.admin and not is_lecturer and not is_enrolled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to download materials for this course"
+        )
+        
+    # Get the file path
+    full_path = os.path.join(settings.STATIC_DIR, material.file_path)
+    
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="File not found on server")
+        
+    # Use original filename if available, fallback to title + Extension
+    if material.original_filename:
+        filename = material.original_filename
+    else:
+        filename = material.title
+        _, existing_ext = os.path.splitext(filename)
+        if not existing_ext:
+            _, file_ext = os.path.splitext(material.file_path)
+            filename = f"{filename}{file_ext}"
+
+    return FileResponse(
+        path=full_path, 
+        filename=filename, 
+        media_type=material.file_type
+    )
