@@ -8,6 +8,7 @@ class AttendanceMark(BaseModel):
     qr_code_content: str
     latitude: float
     longitude: float
+    accuracy: Optional[float] = None
     device_fingerprint: Optional[str] = None
     verification_method: VerificationMethod = VerificationMethod.qr_scan
 
