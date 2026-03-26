@@ -75,8 +75,16 @@ async def mark_attendance(
         raise HTTPException(status_code=400, detail="Invalid or Expired QR Code")
     
     distance = get_distance(attendance.latitude, attendance.longitude, session.latitude, session.longitude)
-    if distance > session.geofence_radius:
-        raise HTTPException(status_code=400, detail=f"Outside geofence area. Distance: {distance:.2f}m")
+    # Add a 10m buffer to the geofence radius to account for minor GPS floating/jitter
+    if distance > (session.geofence_radius + 10):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Outside geofence area. Distance: {distance:.1f}m, Radius: {session.geofence_radius}m. "
+                f"Session coords: ({session.latitude:.6f}, {session.longitude:.6f}). "
+                f"Your coords: ({attendance.latitude:.6f}, {attendance.longitude:.6f})."
+            )
+        )
     
     # 3. Verify Enrollment
     if current_user not in session.course.students:
