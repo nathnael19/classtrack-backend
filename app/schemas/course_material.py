@@ -15,6 +15,7 @@ class CourseMaterialUpdate(CourseMaterialBase):
 class CourseMaterialOut(CourseMaterialBase):
     id: int
     file_path: str
+    original_filename: Optional[str]
     file_type: str
     file_size: int
     course_id: int
