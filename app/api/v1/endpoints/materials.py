@@ -32,6 +32,7 @@ async def upload_material(
     course_id: int = Form(...),
     title: str = Form(...),
     description: Optional[str] = Form(None),
+    folder_name: Optional[str] = Form("General"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -101,6 +102,7 @@ async def upload_material(
     db_material = CourseMaterial(
         title=title,
         description=description,
+        folder_name=folder_name,
         file_path=relative_path,
         original_filename=file.filename,
         file_type=file.content_type or "application/octet-stream",
