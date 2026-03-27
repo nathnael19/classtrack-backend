@@ -25,9 +25,29 @@ def create_notification_via_api(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Only admins can create notifications via API. Use backend service for automated notifications."""
-    if current_user.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Only admins can create notifications via API")
+    """Admins and Lecturers can create notifications. Lecturers can only notify their students."""
+    if current_user.role == UserRole.admin:
+        pass # Admins can notify anyone
+    elif current_user.role == UserRole.lecturer:
+        # Verify the target user is a student enrolled in one of this lecturer's courses
+        from ....models.enrollment import enrollment_association
+        from ....models.course import Course
+        
+        is_student_of_lecturer = db.query(enrollment_association).join(
+            Course, Course.id == enrollment_association.c.course_id
+        ).filter(
+            enrollment_association.c.user_id == notif_in.user_id,
+            Course.lecturer_id == current_user.id
+        ).first()
+        
+        if not is_student_of_lecturer:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Lecturers can only notify students enrolled in their modules."
+            )
+    else:
+        raise HTTPException(status_code=403, detail="Not authorized to create notifications")
+
     db_notif = Notification(**notif_in.dict())
     db.add(db_notif)
     db.commit()
