@@ -44,6 +44,8 @@ class StudentActivityOut(BaseModel):
     last_seen: Optional[datetime] = None
     status: str # 'Consistent', 'At Risk', 'Inactive'
     section: Optional[str] = None
+    department: Optional[str] = None
+    enrollment_year: Optional[int] = None
 
 class LecturerBrief(BaseModel):
     id: int
