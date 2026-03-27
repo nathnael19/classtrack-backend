@@ -28,6 +28,8 @@ class StudentEnroll(BaseModel):
     name: str
     student_id: str
     section: Optional[str] = None
+    department_id: Optional[int] = None
+    enrollment_year: Optional[int] = None
 
 class EnrollmentRequest(BaseModel):
     students: List[StudentEnroll]
