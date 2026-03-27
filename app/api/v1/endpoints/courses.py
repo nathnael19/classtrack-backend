@@ -168,26 +168,26 @@ def enroll_students(
     if course.lecturer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to manage this course")
 
-    added_count = 0
+    # Pass 1: Validate all students exist in the system
+    missing_students = []
     for student_data in enrollment.students:
         # Check if user already exists by student_id
         student = db.query(User).filter(User.student_id == student_data.student_id).first()
-        
         if not student:
-            # Create a placeholder user
-            # We generate a dummy email and password since they haven't "registered" themselves yet
-            dummy_email = f"{student_data.student_id}@classtrack.placeholder"
-            student = User(
-                name=student_data.name,
-                email=dummy_email,
-                student_id=student_data.student_id,
-                department_id=student_data.department_id,
-                enrollment_year=student_data.enrollment_year,
-                role=UserRole.student,
-                hashed_password="placeholder_not_for_login"
-            )
-            db.add(student)
-            db.flush() # Get the ID
+            missing_students.append(student_data.student_id)
+
+    if missing_students:
+        # Halt execution and return an explicit list of unregistered students
+        raise HTTPException(
+            status_code=400, 
+            detail=f"The following student IDs were not found in the system: {', '.join(missing_students)}. Registration required."
+        )
+
+    # Pass 2: Process enrollments
+    added_count = 0
+    for student_data in enrollment.students:
+        # Since we validated, the student is guaranteed to exist
+        student = db.query(User).filter(User.student_id == student_data.student_id).first()
 
         # Link to course with section
         existing_enrollment = db.execute(
