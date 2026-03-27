@@ -235,6 +235,40 @@ async def manual_mark_attendance(
 def get_attendance_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(Attendance).filter(Attendance.student_id == current_user.id).all()
 
+@router.get("/history/student/{student_id}/course/{course_id}", response_model=List[AttendanceOut])
+def get_student_course_attendance_history(
+    student_id: int,
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retrieve full attendance history for a specific student in a specific course.
+    Authorized for the course lecturer or an admin.
+    """
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+        
+    is_authorized = (current_user.role == UserRole.admin) or (course.lecturer_id == current_user.id) or (current_user in course.lecturers)
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Not authorized to view this student's history")
+        
+    # Get all sessions for this course
+    sessions = db.query(ClassSession).filter(ClassSession.course_id == course_id).all()
+    session_ids = [s.id for s in sessions]
+    
+    if not session_ids:
+        return []
+    
+    # Get attendance records for this student in these sessions
+    records = db.query(Attendance).filter(
+        Attendance.student_id == student_id,
+        Attendance.session_id.in_(session_ids)
+    ).order_by(Attendance.timestamp.desc()).all()
+    
+    return records
+
 @router.get("/session/{session_id}", response_model=List[AttendanceOut])
 def get_session_attendance(
     session_id: int,
