@@ -179,6 +179,8 @@ def enroll_students(
                 name=student_data.name,
                 email=dummy_email,
                 student_id=student_data.student_id,
+                department_id=student_data.department_id,
+                enrollment_year=student_data.enrollment_year,
                 role=UserRole.student,
                 hashed_password="placeholder_not_for_login"
             )
