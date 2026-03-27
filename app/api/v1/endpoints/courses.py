@@ -123,7 +123,9 @@ def get_course(
             attendance_rate=attendance_rate,
             last_seen=last_attendance.timestamp if last_attendance else None,
             status=status,
-            section=enrollment_sections.get(student.id)
+            section=enrollment_sections.get(student.id),
+            department=student.department_name,
+            enrollment_year=student.enrollment_year
         ))
         total_attendance_sum += attendance_rate
 
