@@ -13,6 +13,7 @@ from ....models.room import Room
 from ....models.class_session import ClassSession
 from ....models.course import Course
 from ....models.user import User
+from ....models.enrollment import enrollment_association
 from ....schemas.analytics import DashboardStats, ChartDataPoint, CourseDistribution, RecentSessionSummary, EngagementPoint, PeakPeriod
 from .users import get_current_user
 
@@ -20,20 +21,32 @@ router = APIRouter()
 
 
 def _get_attendance_rate(db: Session, lecturer_id: int, start: datetime, end: datetime) -> float:
-    """Module-level helper: computes attendance rate (%) for a lecturer in a time window."""
-    total_potential = (
-        db.query(func.sum(Room.capacity))
-        .join(ClassSession, ClassSession.room == Room.name)
+    """Computes attendance rate (%) for a lecturer in a time window.
+    Uses enrolled student count per session as the denominator — NOT room capacity.
+    """
+    sessions = (
+        db.query(ClassSession)
         .join(Course)
         .filter(
             Course.lecturer_id == lecturer_id,
             ClassSession.start_time >= start,
             ClassSession.start_time < end,
         )
-        .scalar() or 0
+        .all()
     )
+    if not sessions:
+        return 0.0
+
+    total_potential = 0
+    for session in sessions:
+        enrolled_count = db.query(func.count()).select_from(enrollment_association).filter(
+            enrollment_association.c.course_id == session.course_id
+        ).scalar() or 0
+        total_potential += enrolled_count
+
     if total_potential == 0:
         return 0.0
+
     present = (
         db.query(Attendance)
         .join(ClassSession)
@@ -45,21 +58,16 @@ def _get_attendance_rate(db: Session, lecturer_id: int, start: datetime, end: da
         )
         .count()
     )
-    return (present / total_potential) * 100
+    return round((present / total_potential) * 100, 1)
 
 
 def _get_session_total(db: Session, session: ClassSession) -> int:
-    """Returns the total expected students for a session (room capacity if available, else enrolled count)."""
-    room_obj = db.query(Room).filter(Room.name == session.room).first()
-    if room_obj and room_obj.capacity:
-        return room_obj.capacity
-    # Fallback: count distinct students who have ever attended this course
-    enrolled = (
-        db.query(func.count(Attendance.student_id.distinct()))
-        .join(ClassSession)
-        .filter(ClassSession.course_id == session.course_id)
-        .scalar() or 0
-    )
+    """Returns the number of enrolled students for a session's course.
+    This is the correct denominator for attendance rate calculations.
+    """
+    enrolled = db.query(func.count()).select_from(enrollment_association).filter(
+        enrollment_association.c.course_id == session.course_id
+    ).scalar() or 0
     return enrolled if enrolled > 0 else 1
 
 @router.get("/dashboard", response_model=DashboardStats)
