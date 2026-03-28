@@ -21,5 +21,6 @@ class Settings:
     # Resend Email Service
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 settings = Settings()
