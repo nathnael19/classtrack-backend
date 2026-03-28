@@ -7,3 +7,4 @@ classtrack.db
 .vscode/
 .idea/
 *.swp
+static/
