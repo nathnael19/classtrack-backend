@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ....db.session import get_db
 from ....core.config import settings
 
-from ....models.user import User, UserRole
+from ....models.user import User, UserRole, UserState
 from ....schemas.user import UserOut, UserUpdate, UserCreateAdmin
 from ....core.security import get_password_hash, verify_password
 from ....core.email import send_setup_password_email
@@ -37,6 +37,14 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
+
+    # Block access for non-active accounts
+    if user.account_status not in (UserState.active.value, None):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user.account_status}. Contact your administrator.",
+        )
+
     return user
 
 @router.get("/me", response_model=UserOut)
