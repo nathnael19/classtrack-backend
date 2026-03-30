@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -13,10 +13,12 @@ router = APIRouter()
 
 @router.get("/", response_model=List[NotificationOut])
 def get_notifications(
+    skip: int = 0,
+    limit: int = Query(100, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(Notification).filter(Notification.user_id == current_user.id).order_by(Notification.created_at.desc()).all()
+    return db.query(Notification).filter(Notification.user_id == current_user.id).order_by(Notification.created_at.desc()).offset(skip).limit(limit).all()
 
 
 @router.post("/", response_model=NotificationOut, status_code=status.HTTP_201_CREATED)
