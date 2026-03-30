@@ -40,6 +40,9 @@ class UserBase(BaseModel):
     timezone: Optional[str] = "UTC"
 
 class UserCreate(UserBase):
+    # Client role is ignored/overridden by the backend for self-registration.
+    # Keeping this optional allows clients to omit it entirely.
+    role: Optional[UserRole] = None
     password: str
 
 class UserUpdate(BaseModel):
