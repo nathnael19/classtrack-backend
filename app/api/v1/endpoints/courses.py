@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 import io
 import csv
@@ -23,6 +23,8 @@ from ....schemas.course_schedule import CourseScheduleCreate, CourseScheduleOut
 from sqlalchemy import insert, select, update
 from ....models.enrollment import enrollment_association
 from ....models.course import course_lecturer_association
+from ....core.content_disposition import build_content_disposition_attachment
+from ....core.limiter import limiter
 
 router = APIRouter()
 
@@ -161,7 +163,9 @@ def get_course(
     )
 
 @router.post("/{course_id}/enroll", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
 def enroll_students(
+    request: Request,
     course_id: int,
     enrollment: EnrollmentRequest,
     db: Session = Depends(get_db),
@@ -324,7 +328,9 @@ def delete_course_schedule(
     return None
 
 @router.get("/{course_id}/export")
+@limiter.limit("5/minute")
 def export_course_report(
+    request: Request,
     course_id: int,
     format: str = "csv",
     db: Session = Depends(get_db),
@@ -395,7 +401,9 @@ def export_course_report(
             writer.writeheader()
             writer.writerows(data)
         response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-        response.headers["Content-Disposition"] = f"attachment; filename=course_{course.code}_report.csv"
+        response.headers["Content-Disposition"] = build_content_disposition_attachment(
+            f"course_{course.code}_report.csv"
+        )
         return response
 
     elif format == "excel":
@@ -404,7 +412,9 @@ def export_course_report(
         with pd.ExcelWriter(stream, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Report')
         response = StreamingResponse(iter([stream.getvalue()]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        response.headers["Content-Disposition"] = f"attachment; filename=course_{course.code}_report.xlsx"
+        response.headers["Content-Disposition"] = build_content_disposition_attachment(
+            f"course_{course.code}_report.xlsx"
+        )
         return response
 
     elif format == "pdf":
@@ -438,7 +448,9 @@ def export_course_report(
         doc.build(elements)
         
         response = StreamingResponse(iter([stream.getvalue()]), media_type="application/pdf")
-        response.headers["Content-Disposition"] = f"attachment; filename=course_{course.code}_report.pdf"
+        response.headers["Content-Disposition"] = build_content_disposition_attachment(
+            f"course_{course.code}_report.pdf"
+        )
         return response
 
     else:
