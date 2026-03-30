@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from ....db.session import get_db
 from ....models.organization import Organization
-from ....models.user import User
+from ....models.user import User, UserRole
 from .users import get_current_user
 from pydantic import BaseModel
 
@@ -37,5 +37,15 @@ def create_organization(
     return db_org
 
 @router.get("/", response_model=List[OrganizationOut])
-def list_organizations(db: Session = Depends(get_db)):
-    return db.query(Organization).all()
+def list_organizations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Admins can view all organizations; other roles are limited to their own org.
+    if current_user.role == UserRole.admin:
+        return db.query(Organization).all()
+
+    if not current_user.organization_id:
+        return []
+
+    return db.query(Organization).filter(Organization.id == current_user.organization_id).all()
