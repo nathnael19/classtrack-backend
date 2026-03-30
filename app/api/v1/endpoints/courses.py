@@ -1,4 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse, JSONResponse
+import io
+import csv
+import json
+import pandas as pd
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -313,4 +322,125 @@ def delete_course_schedule(
     db.delete(schedule)
     db.commit()
     return None
+
+@router.get("/{course_id}/export")
+def export_course_report(
+    course_id: int,
+    format: str = "csv",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    # Verify authorization
+    is_authorized = (
+        course.lecturer_id == current_user.id
+        or current_user in course.lecturers
+        or current_user.role == UserRole.admin
+    )
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Not authorized to export this course")
+
+    # Gather data
+    sessions = db.query(ClassSession).filter(ClassSession.course_id == course_id).all()
+    session_ids = [s.id for s in sessions]
+    total_sessions = len(sessions)
+
+    data = []
+    
+    # Get sections
+    enrollment_sections = {
+        row.user_id: row.section for row in db.execute(
+            select(enrollment_association.c.user_id, enrollment_association.c.section)
+            .where(enrollment_association.c.course_id == course_id)
+        ).fetchall()
+    }
+
+    for student in course.students:
+        attendance_count = db.query(Attendance).filter(
+            Attendance.student_id == student.id,
+            Attendance.session_id.in_(session_ids)
+        ).count() if session_ids else 0
+
+        attendance_rate = (attendance_count / total_sessions * 100) if total_sessions > 0 else 0
+        
+        status = "Inactive"
+        if attendance_rate >= 80:
+            status = "Consistent"
+        elif attendance_rate >= 50:
+            status = "Moderate"
+        elif attendance_count > 0:
+            status = "At Risk"
+
+        data.append({
+            "Name": student.name,
+            "University ID": student.student_id,
+            "Section": enrollment_sections.get(student.id, "-"),
+            "Department": student.department_name or "N/A",
+            "Year": student.enrollment_year or "-",
+            "Attendance Rate (%)": round(attendance_rate, 2),
+            "Status": status
+        })
+
+    # Generate Export
+    if format == "json":
+        return JSONResponse(content={"course_name": course.name, "course_code": course.code, "students": data})
+        
+    elif format == "csv":
+        stream = io.StringIO()
+        if data:
+            writer = csv.DictWriter(stream, fieldnames=data[0].keys())
+            writer.writeheader()
+            writer.writerows(data)
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+        response.headers["Content-Disposition"] = f"attachment; filename=course_{course.code}_report.csv"
+        return response
+
+    elif format == "excel":
+        df = pd.DataFrame(data)
+        stream = io.BytesIO()
+        with pd.ExcelWriter(stream, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Report')
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response.headers["Content-Disposition"] = f"attachment; filename=course_{course.code}_report.xlsx"
+        return response
+
+    elif format == "pdf":
+        stream = io.BytesIO()
+        doc = SimpleDocTemplate(stream, pagesize=landscape(letter))
+        elements = []
+        styles = getSampleStyleSheet()
+        elements.append(Paragraph(f"Course Report: {course.name} ({course.code})", styles['Title']))
+        elements.append(Spacer(1, 12))
+        
+        table_data = []
+        if data:
+            headers = list(data[0].keys())
+            table_data.append(headers)
+            for row in data:
+                table_data.append([str(row[h]) for h in headers])
+        else:
+            table_data.append(["No data available"])
+            
+        t = Table(table_data)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(t)
+        doc.build(elements)
+        
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="application/pdf")
+        response.headers["Content-Disposition"] = f"attachment; filename=course_{course.code}_report.pdf"
+        return response
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported format")
 
