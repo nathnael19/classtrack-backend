@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query, Request
 from typing import List, Optional
 import shutil
 import os
 import uuid
+import io
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+from PIL import Image, UnidentifiedImageError
+import mimetypes
+from fastapi.responses import FileResponse
 
 from ....db.session import get_db
 from ....core.config import settings
@@ -14,6 +18,7 @@ from ....models.user import User, UserRole, UserState
 from ....schemas.user import UserOut, UserUpdate, UserCreateAdmin
 from ....core.security import get_password_hash, verify_password
 from ....core.email import send_setup_password_email
+from ....core.limiter import limiter
 from datetime import datetime, timedelta
 
 router = APIRouter()
@@ -131,49 +136,100 @@ def update_user_me(
     return current_user
 
 @router.post("/me/profile-picture", response_model=UserOut)
+@limiter.limit("5/minute")
 async def upload_profile_picture(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Validate file type
-    if not file.content_type.startswith("image/"):
+    # Strict allowlist: reject SVG and other active-content types.
+    allowed_content_types = {"image/png", "image/jpeg"}
+    if not file.content_type or file.content_type not in allowed_content_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be an image"
+            detail="Unsupported image type. Allowed: image/png, image/jpeg",
         )
-    
-    # Generate unique filename
-    file_extension = os.path.splitext(file.filename)[1]
-    if not file_extension:
-        # Fallback for some image types
-        if file.content_type == "image/jpeg": file_extension = ".jpg"
-        elif file.content_type == "image/png": file_extension = ".png"
-        else: file_extension = ".png"
 
-    filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = os.path.join(settings.UPLOADS_DIR, filename)
-    
-    # Save file
+    # Enforce server-side size limit.
+    file_bytes = await file.read()
+    if len(file_bytes) > settings.PROFILE_PICTURES_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum is {settings.PROFILE_PICTURES_MAX_BYTES} bytes.",
+        )
+
+    # Re-encode image with Pillow to remove embedded active content.
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        img = Image.open(io.BytesIO(file_bytes))
+        img.verify()  # Ensure it's a real image
+        img = Image.open(io.BytesIO(file_bytes))
+        img.load()
+    except UnidentifiedImageError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image data",
+        )
+
+    if file.content_type == "image/jpeg":
+        # Normalize to RGB and save as JPEG.
+        img = img.convert("RGB")
+        ext = ".jpg"
+        save_format = "JPEG"
+    else:
+        # Normalize to RGBA and save as PNG.
+        img = img.convert("RGBA")
+        ext = ".png"
+        save_format = "PNG"
+
+    filename = f"{uuid.uuid4()}{ext}"
+    file_path = os.path.join(settings.PROFILE_PICTURES_DIR, filename)
+
+    try:
+        img.save(file_path, format=save_format, optimize=True)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_MESSAGE,
-            detail=f"Could not save file: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not save image: {str(e)}",
         )
-    finally:
-        file.file.close()
-    
-    # Update user profile_picture_url
-    # Store relative URL
-    current_user.profile_picture_url = f"{settings.STATIC_URL_PREFIX}/uploads/{filename}"
+
+    # Store only the filename (not a public URL).
+    current_user.profile_picture_url = filename
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
-    
     return current_user
+
+
+@router.get("/me/profile-picture")
+def get_profile_picture(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not current_user.profile_picture_url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile picture not found")
+
+    filename = os.path.basename(current_user.profile_picture_url)
+    # Prefer the new private storage location.
+    full_path = os.path.join(settings.PROFILE_PICTURES_DIR, filename)
+
+    media_type = mimetypes.guess_type(full_path)[0] or "image/png"
+    if not os.path.exists(full_path):
+        # Backward compatibility: serve legacy static/uploads content if present.
+        legacy_path = os.path.join(settings.UPLOADS_DIR, filename)
+        if not os.path.exists(legacy_path):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile picture not found")
+        full_path = legacy_path
+        media_type = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
+
+    return FileResponse(
+        path=full_path,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 @router.get("/lecturers", response_model=List[UserOut])
 def list_lecturers(
