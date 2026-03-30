@@ -350,9 +350,9 @@ def export_course_report(
         raise HTTPException(status_code=403, detail="Not authorized to export this course")
 
     # Gather data
-    sessions = db.query(ClassSession).filter(ClassSession.course_id == course_id).all()
+    sessions = db.query(ClassSession.id).filter(ClassSession.course_id == course_id).all()
     session_ids = [s.id for s in sessions]
-    total_sessions = len(sessions)
+    total_sessions = len(session_ids)
 
     data = []
     
@@ -364,11 +364,17 @@ def export_course_report(
         ).fetchall()
     }
 
+    attendance_counts_by_student = {}
+    if session_ids:
+        attendance_counts_by_student = dict(
+            db.query(Attendance.student_id, func.count(Attendance.id))
+            .filter(Attendance.session_id.in_(session_ids))
+            .group_by(Attendance.student_id)
+            .all()
+        )
+
     for student in course.students:
-        attendance_count = db.query(Attendance).filter(
-            Attendance.student_id == student.id,
-            Attendance.session_id.in_(session_ids)
-        ).count() if session_ids else 0
+        attendance_count = int(attendance_counts_by_student.get(student.id, 0) or 0)
 
         attendance_rate = (attendance_count / total_sessions * 100) if total_sessions > 0 else 0
         
