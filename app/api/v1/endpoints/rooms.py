@@ -61,12 +61,19 @@ def update_room(
     """
     Update facility specifications.
     """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Only admins can update rooms.")
+
     db_room = db.query(Room).filter(Room.id == room_id).first()
     if not db_room:
         raise HTTPException(status_code=404, detail="Facility not found")
-        
-    for field, value in room_in.dict().items():
-        setattr(db_room, field, value)
+
+    # Explicitly update only allowed fields (prevents unintended attribute mutation).
+    update_data = room_in.model_dump()
+    allowed_fields = {"name", "building", "capacity", "latitude", "longitude", "geofence_radius", "type", "status"}
+    for field, value in update_data.items():
+        if field in allowed_fields:
+            setattr(db_room, field, value)
         
     db.commit()
     db.refresh(db_room)
@@ -81,6 +88,9 @@ def delete_room(
     """
     Decommission a facility.
     """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Only admins can delete rooms.")
+
     db_room = db.query(Room).filter(Room.id == room_id).first()
     if not db_room:
         raise HTTPException(status_code=404, detail="Facility not found")
