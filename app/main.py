@@ -12,11 +12,18 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from .core.security_headers import SecurityHeadersMiddleware
+from .core import perf
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 # Do not log connection strings or secrets.
 
 # Create database tables
 base.Base.metadata.create_all(bind=engine)
+
+# Optional perf instrumentation (PERF_METRICS=1)
+perf.install_sqlalchemy_query_counter(engine)
 
 # Ensure static/uploads directory exists
 if not os.path.exists(settings.UPLOADS_DIR):
@@ -41,6 +48,21 @@ app.add_middleware(
 
 # Baseline security hardening headers.
 app.add_middleware(SecurityHeadersMiddleware)
+
+class PerfMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if not perf.perf_enabled():
+            return await call_next(request)
+
+        perf.reset_query_count()
+        with perf.PerfTimer() as t:
+            response = await call_next(request)
+
+        response.headers["X-Perf-Elapsed-Ms"] = f"{t.elapsed_ms:.2f}"
+        response.headers["X-Perf-DB-Queries"] = str(perf.get_query_count())
+        return response
+
+app.add_middleware(PerfMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
 
