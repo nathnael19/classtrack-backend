@@ -12,9 +12,16 @@ router = APIRouter()
 
 @router.get("/", response_model=List[DepartmentOut])
 def get_departments(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    return db.query(Department).all()
+    if current_user.role == UserRole.admin:
+        return db.query(Department).all()
+
+    if not current_user.organization_id:
+        return []
+
+    return db.query(Department).filter(Department.organization_id == current_user.organization_id).all()
 
 @router.post("/", response_model=DepartmentOut, status_code=status.HTTP_201_CREATED)
 def create_department(
