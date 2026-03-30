@@ -7,6 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 from typing import List, Optional
 import csv
 import io
@@ -31,25 +32,37 @@ def _get_attendance_rate(db: Session, lecturer_id: int, start: datetime, end: da
     """Computes attendance rate (%) for a lecturer in a time window.
     Uses enrolled student count per session as the denominator — NOT room capacity.
     """
-    sessions = (
-        db.query(ClassSession)
+    # Compute total potential attendance as sum(enrolled(course) * session_count(course))
+    course_session_counts = (
+        db.query(ClassSession.course_id, func.count(ClassSession.id).label("session_count"))
         .join(Course)
         .filter(
             Course.lecturer_id == lecturer_id,
             ClassSession.start_time >= start,
             ClassSession.start_time < end,
         )
+        .group_by(ClassSession.course_id)
         .all()
     )
-    if not sessions:
+    if not course_session_counts:
         return 0.0
 
+    course_ids = [row.course_id for row in course_session_counts]
+
+    enrolled_counts = dict(
+        db.query(
+            enrollment_association.c.course_id,
+            func.count(enrollment_association.c.user_id).label("enrolled_count"),
+        )
+        .filter(enrollment_association.c.course_id.in_(course_ids))
+        .group_by(enrollment_association.c.course_id)
+        .all()
+    )
+
     total_potential = 0
-    for session in sessions:
-        enrolled_count = db.query(func.count()).select_from(enrollment_association).filter(
-            enrollment_association.c.course_id == session.course_id
-        ).scalar() or 0
-        total_potential += enrolled_count
+    for row in course_session_counts:
+        enrolled = enrolled_counts.get(row.course_id, 0)
+        total_potential += int(enrolled) * int(row.session_count)
 
     if total_potential == 0:
         return 0.0
@@ -204,43 +217,69 @@ def get_course_distribution(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Count sessions or students per course
-    courses = db.query(Course).filter(Course.lecturer_id == current_user.id).all()
-    result = []
-    for course in courses:
-        student_count = db.query(func.count(Attendance.id)).join(ClassSession).filter(
-            ClassSession.course_id == course.id
-        ).scalar() or 0
-        
-        result.append({
-            "name": course.code,
-            "students": student_count
-        })
-    return result
+    # Aggregate attendance volume per course in one query (avoid N+1).
+    rows = (
+        db.query(
+            Course.code.label("code"),
+            func.count(Attendance.id).label("attendance_rows"),
+        )
+        .outerjoin(ClassSession, ClassSession.course_id == Course.id)
+        .outerjoin(Attendance, Attendance.session_id == ClassSession.id)
+        .filter(Course.lecturer_id == current_user.id)
+        .group_by(Course.code)
+        .all()
+    )
+    return [{"name": r.code, "students": int(r.attendance_rows or 0)} for r in rows]
 
 @router.get("/recent-sessions", response_model=List[RecentSessionSummary])
 def get_recent_sessions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    sessions = db.query(ClassSession).join(Course).filter(
-        Course.lecturer_id == current_user.id
-    ).order_by(ClassSession.start_time.desc()).limit(5).all()
-    
+    sessions = (
+        db.query(ClassSession)
+        .options(joinedload(ClassSession.course))
+        .join(Course)
+        .filter(Course.lecturer_id == current_user.id)
+        .order_by(ClassSession.start_time.desc())
+        .limit(5)
+        .all()
+    )
+
+    session_ids = [s.id for s in sessions]
+    if not session_ids:
+        return []
+
+    present_counts = dict(
+        db.query(Attendance.session_id, func.count(Attendance.id))
+        .filter(Attendance.session_id.in_(session_ids))
+        .group_by(Attendance.session_id)
+        .all()
+    )
+
+    course_ids = list({s.course_id for s in sessions})
+    enrolled_counts = dict(
+        db.query(enrollment_association.c.course_id, func.count(enrollment_association.c.user_id))
+        .filter(enrollment_association.c.course_id.in_(course_ids))
+        .group_by(enrollment_association.c.course_id)
+        .all()
+    )
+
     result = []
     for s in sessions:
-        present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        total_count = _get_session_total(db, s)
-        rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
-        
-        result.append({
-            "id": s.id,
-            "course": s.course.name,
-            "date": s.start_time,
-            "present": present_count,
-            "total": total_count,
-            "rate": rate
-        })
+        present = int(present_counts.get(s.id, 0) or 0)
+        total = int(enrolled_counts.get(s.course_id, 0) or 0) or 1
+        rate = f"{(present / total * 100):.0f}%"
+        result.append(
+            {
+                "id": s.id,
+                "course": s.course.name if s.course else "Unknown",
+                "date": s.start_time,
+                "present": present,
+                "total": total,
+                "rate": rate,
+            }
+        )
     return result
 
 @router.get("/sessions-report", response_model=List[RecentSessionSummary])
@@ -250,10 +289,14 @@ def get_sessions_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     course_id: Optional[int] = Query(None),
-    q: Optional[str] = Query(None)
+    q: Optional[str] = Query(None),
+    skip: int = 0,
+    limit: int = 50,
 ):
     if q and len(q) > 50:
         raise HTTPException(status_code=400, detail="Query too long")
+    limit = min(max(limit, 1), 200)
+    skip = max(skip, 0)
     query = db.query(ClassSession).join(Course).filter(
         Course.lecturer_id == current_user.id
     )
@@ -270,13 +313,37 @@ def get_sessions_report(
             )
         )
 
-    sessions = query.order_by(ClassSession.start_time.desc()).all()
+    sessions = (
+        query.options(joinedload(ClassSession.course))
+        .order_by(ClassSession.start_time.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    session_ids = [s.id for s in sessions]
+    if not session_ids:
+        return []
+
+    present_counts = dict(
+        db.query(Attendance.session_id, func.count(Attendance.id))
+        .filter(Attendance.session_id.in_(session_ids))
+        .group_by(Attendance.session_id)
+        .all()
+    )
+
+    course_ids = list({s.course_id for s in sessions})
+    enrolled_counts = dict(
+        db.query(enrollment_association.c.course_id, func.count(enrollment_association.c.user_id))
+        .filter(enrollment_association.c.course_id.in_(course_ids))
+        .group_by(enrollment_association.c.course_id)
+        .all()
+    )
     
     result = []
     for s in sessions:
-        present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        total_count = _get_session_total(db, s)
-        rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
+        present_count = int(present_counts.get(s.id, 0) or 0)
+        total_count = int(enrolled_counts.get(s.course_id, 0) or 0) or 1
+        rate = f"{(present_count / total_count * 100):.0f}%"
         
         result.append({
             "id": s.id,
@@ -297,10 +364,14 @@ def export_sessions_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     course_id: Optional[int] = Query(None),
-    q: Optional[str] = Query(None)
+    q: Optional[str] = Query(None),
+    skip: int = 0,
+    limit: int = 5000,
 ):
     if q and len(q) > 50:
         raise HTTPException(status_code=400, detail="Query too long")
+    limit = min(max(limit, 1), 10000)
+    skip = max(skip, 0)
     query = db.query(ClassSession).join(Course).filter(
         Course.lecturer_id == current_user.id
     )
@@ -317,13 +388,38 @@ def export_sessions_report(
             )
         )
 
-    sessions = query.order_by(ClassSession.start_time.desc()).all()
+    sessions = (
+        query.options(joinedload(ClassSession.course))
+        .order_by(ClassSession.start_time.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    session_ids = [s.id for s in sessions]
+    if not session_ids:
+        data = []
+    else:
+        present_counts = dict(
+            db.query(Attendance.session_id, func.count(Attendance.id))
+            .filter(Attendance.session_id.in_(session_ids))
+            .group_by(Attendance.session_id)
+            .all()
+        )
+
+        course_ids = list({s.course_id for s in sessions})
+        enrolled_counts = dict(
+            db.query(enrollment_association.c.course_id, func.count(enrollment_association.c.user_id))
+            .filter(enrollment_association.c.course_id.in_(course_ids))
+            .group_by(enrollment_association.c.course_id)
+            .all()
+        )
     
     data = []
     for s in sessions:
-        present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
-        total_count = _get_session_total(db, s)
-        rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
+        present_count = int(present_counts.get(s.id, 0) or 0) if session_ids else 0
+        total_count = int(enrolled_counts.get(s.course_id, 0) or 0) if session_ids else 0
+        total_count = total_count or 1
+        rate = f"{(present_count / total_count * 100):.0f}%"
         
         data.append({
             "Session ID": s.id,
