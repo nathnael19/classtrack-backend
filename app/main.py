@@ -11,8 +11,9 @@ from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from .core.security_headers import SecurityHeadersMiddleware
 
-print(f"Server starting with DATABASE_URL: {settings.DATABASE_URL}")
+# Do not log connection strings or secrets.
 
 # Create database tables
 base.Base.metadata.create_all(bind=engine)
@@ -21,6 +22,10 @@ base.Base.metadata.create_all(bind=engine)
 if not os.path.exists(settings.UPLOADS_DIR):
     os.makedirs(settings.UPLOADS_DIR)
 
+# Ensure private profile picture directory exists
+if not os.path.exists(settings.PROFILE_PICTURES_DIR):
+    os.makedirs(settings.PROFILE_PICTURES_DIR)
+
 app = FastAPI(title="ClassTrack API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -28,11 +33,14 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify the actual origins
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Baseline security hardening headers.
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
 
