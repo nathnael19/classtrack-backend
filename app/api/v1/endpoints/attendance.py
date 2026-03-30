@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List
 from datetime import datetime
 import math
@@ -131,9 +132,21 @@ async def mark_attendance(
         device_fingerprint=attendance.device_fingerprint,
         verification_method=attendance.verification_method,
     )
-    db.add(new_attendance)
-    db.commit()
-    db.refresh(new_attendance)
+    attendance_record = None
+    try:
+        db.add(new_attendance)
+        db.commit()
+        db.refresh(new_attendance)
+        attendance_record = new_attendance
+    except IntegrityError:
+        # If two requests race, the unique constraint may reject one; return the existing row.
+        db.rollback()
+        attendance_record = db.query(Attendance).filter(
+            Attendance.student_id == current_user.id,
+            Attendance.session_id == attendance.session_id,
+        ).first()
+        if attendance_record is None:
+            raise
 
     # Broadcast update via WebSocket
     await manager.broadcast_to_session(attendance.session_id, {
@@ -143,13 +156,13 @@ async def mark_attendance(
             "name": current_user.name,
             "student_id": current_user.student_id,
             "status": status.value,
-            "timestamp": new_attendance.timestamp.isoformat(),
-            "attendance_id": new_attendance.id,
+            "timestamp": attendance_record.timestamp.isoformat(),
+            "attendance_id": attendance_record.id,
             "section": section
         }
     })
 
-    return new_attendance
+    return attendance_record
 
 @router.post("/manual", response_model=AttendanceOut)
 async def manual_mark_attendance(
@@ -209,9 +222,26 @@ async def manual_mark_attendance(
         verification_method=VerificationMethod.manual_override,
         timestamp=datetime.utcnow()
     )
-    db.add(new_attendance)
-    db.commit()
-    db.refresh(new_attendance)
+    attendance_record = None
+    try:
+        db.add(new_attendance)
+        db.commit()
+        db.refresh(new_attendance)
+        attendance_record = new_attendance
+    except IntegrityError:
+        # Unique constraint race: update/return the already-created row.
+        db.rollback()
+        attendance_record = db.query(Attendance).filter(
+            Attendance.student_id == student.id,
+            Attendance.session_id == session.id,
+        ).first()
+        if attendance_record is None:
+            raise
+        attendance_record.status = attendance_in.status
+        attendance_record.verification_method = VerificationMethod.manual_override
+        attendance_record.timestamp = datetime.utcnow()
+        db.commit()
+        db.refresh(attendance_record)
 
     # Broadcast update via WebSocket
     # We use a background task to not block the response
@@ -222,14 +252,14 @@ async def manual_mark_attendance(
             "id": student.id,
             "name": student.name,
             "student_id": student.student_id,
-            "status": new_attendance.status.value,
-            "timestamp": new_attendance.timestamp.isoformat(),
-            "attendance_id": new_attendance.id,
+            "status": attendance_record.status.value,
+            "timestamp": attendance_record.timestamp.isoformat(),
+            "attendance_id": attendance_record.id,
             "section": section
         }
     }))
 
-    return new_attendance
+    return attendance_record
 
 @router.get("/history", response_model=List[AttendanceOut])
 def get_attendance_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
