@@ -1,5 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+import pandas as pd
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
@@ -277,6 +282,110 @@ def get_sessions_report(
             "classroom": s.room
         })
     return result
+
+@router.get("/reports/export")
+def export_sessions_report(
+    format: str = "csv",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    course_id: Optional[int] = Query(None),
+    q: Optional[str] = Query(None)
+):
+    query = db.query(ClassSession).join(Course).filter(
+        Course.lecturer_id == current_user.id
+    )
+
+    if course_id:
+        query = query.filter(ClassSession.course_id == course_id)
+    
+    if q:
+        query = query.filter(
+            or_(
+                Course.name.ilike(f"%{q}%"),
+                Course.code.ilike(f"%{q}%"),
+                ClassSession.room.ilike(f"%{q}%")
+            )
+        )
+
+    sessions = query.order_by(ClassSession.start_time.desc()).all()
+    
+    data = []
+    for s in sessions:
+        present_count = db.query(Attendance).filter(Attendance.session_id == s.id).count()
+        total_count = _get_session_total(db, s)
+        rate = f"{(present_count / total_count * 100):.0f}%" if total_count > 0 else "0%"
+        
+        data.append({
+            "Session ID": s.id,
+            "Course": f"{s.course.code} - {s.course.name}",
+            "Date": s.start_time.strftime("%Y-%m-%d %H:%M"),
+            "Classroom": s.room or "Off-campus",
+            "Present": present_count,
+            "Total": total_count,
+            "Attendance Rate": rate
+        })
+
+    # Generate Export
+    filename = f"attendance_report_{datetime.now().strftime('%Y-%m-%d')}"
+    
+    if format == "json":
+        return JSONResponse(content={"reports": data})
+        
+    elif format == "csv":
+        stream = io.StringIO()
+        if data:
+            writer = csv.DictWriter(stream, fieldnames=data[0].keys())
+            writer.writeheader()
+            writer.writerows(data)
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}.csv"
+        return response
+
+    elif format == "xlsx":
+        df = pd.DataFrame(data)
+        stream = io.BytesIO()
+        with pd.ExcelWriter(stream, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Report')
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}.xlsx"
+        return response
+
+    elif format == "pdf":
+        stream = io.BytesIO()
+        doc = SimpleDocTemplate(stream, pagesize=landscape(letter))
+        elements = []
+        styles = getSampleStyleSheet()
+        elements.append(Paragraph("Attendance Reports", styles['Title']))
+        elements.append(Spacer(1, 12))
+        
+        table_data = []
+        if data:
+            headers = list(data[0].keys())
+            table_data.append(headers)
+            for row in data:
+                table_data.append([str(row[h]) for h in headers])
+        else:
+            table_data.append(["No data available"])
+            
+        t = Table(table_data)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(t)
+        doc.build(elements)
+        
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="application/pdf")
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}.pdf"
+        return response
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported format")
 
 @router.get("/session-context")
 def get_session_context(
