@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -31,6 +31,8 @@ def _can_review_leave_request(user: User, leave_request: LeaveRequest, db: Sessi
 
 @router.get("/", response_model=List[LeaveRequestWithDetails])
 def get_leave_requests(
+    skip: int = 0,
+    limit: int = Query(100, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -53,7 +55,7 @@ def get_leave_requests(
         # as the user requested removing it from admin.
         from sqlalchemy import false
         query = query.filter(false())
-    requests = query.all()
+    requests = query.offset(skip).limit(limit).all()
     result = []
     for req in requests:
         data = LeaveRequestWithDetails.model_validate(req)
