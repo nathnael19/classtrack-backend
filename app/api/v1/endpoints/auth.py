@@ -7,7 +7,7 @@ import secrets
 from ....db.session import get_db
 from ....core import security
 from ....core.config import settings
-from ....models.user import User, UserRole
+from ....models.user import User, UserRole, UserState
 from ....schemas.user import UserCreate, UserOut, PasswordSetupSchema
 from ....schemas.token import Token
 from ....core.limiter import limiter
@@ -19,6 +19,14 @@ router = APIRouter()
 @router.post("/register", response_model=UserOut)
 @limiter.limit("5/minute")
 def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
+    # Self-registration is limited to students only.
+    effective_role = user.role or UserRole.student
+    if effective_role != UserRole.student:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts can be created via public registration",
+        )
+
     db_user_email = db.query(User).filter(User.email == user.email).first()
     if db_user_email:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -27,7 +35,7 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
 
     # STUDENT MERGING LOGIC:
     # If the user is a student, check if a placeholder exists for their student_id
-    if user.role == UserRole.student and user.student_id:
+    if effective_role == UserRole.student and user.student_id:
         placeholder = db.query(User).filter(
             User.student_id == user.student_id,
             User.role == UserRole.student
@@ -44,6 +52,8 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
             placeholder.hashed_password = hashed_password
             placeholder.department_id = user.department_id
             placeholder.section = user.section
+            placeholder.account_status = UserState.active.value
+            placeholder.is_verified = True
             db.add(placeholder)
             db.commit()
             db.refresh(placeholder)
@@ -54,11 +64,13 @@ def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
         name=user.name,
         email=user.email,
         hashed_password=hashed_password,
-        role=user.role,
+        role=UserRole.student,
         student_id=user.student_id,
         department_id=user.department_id,
         section=user.section,
         organization_id=org_id,
+        account_status=UserState.active.value,
+        is_verified=True,
     )
     db.add(new_user)
     db.commit()
