@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 import pandas as pd
 from reportlab.lib.pagesizes import letter, landscape
@@ -21,6 +21,8 @@ from ....models.user import User
 from ....models.enrollment import enrollment_association
 from ....schemas.analytics import DashboardStats, ChartDataPoint, CourseDistribution, RecentSessionSummary, EngagementPoint, PeakPeriod
 from .users import get_current_user
+from ....core.limiter import limiter
+from ....core.content_disposition import build_content_disposition_attachment
 
 router = APIRouter()
 
@@ -242,12 +244,16 @@ def get_recent_sessions(
     return result
 
 @router.get("/sessions-report", response_model=List[RecentSessionSummary])
+@limiter.limit("10/minute")
 def get_sessions_report(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     course_id: Optional[int] = Query(None),
     q: Optional[str] = Query(None)
 ):
+    if q and len(q) > 50:
+        raise HTTPException(status_code=400, detail="Query too long")
     query = db.query(ClassSession).join(Course).filter(
         Course.lecturer_id == current_user.id
     )
@@ -284,13 +290,17 @@ def get_sessions_report(
     return result
 
 @router.get("/reports/export")
+@limiter.limit("5/minute")
 def export_sessions_report(
+    request: Request,
     format: str = "csv",
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     course_id: Optional[int] = Query(None),
     q: Optional[str] = Query(None)
 ):
+    if q and len(q) > 50:
+        raise HTTPException(status_code=400, detail="Query too long")
     query = db.query(ClassSession).join(Course).filter(
         Course.lecturer_id == current_user.id
     )
@@ -338,7 +348,7 @@ def export_sessions_report(
             writer.writeheader()
             writer.writerows(data)
         response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-        response.headers["Content-Disposition"] = f"attachment; filename={filename}.csv"
+        response.headers["Content-Disposition"] = build_content_disposition_attachment(f"{filename}.csv")
         return response
 
     elif format == "xlsx":
@@ -347,7 +357,7 @@ def export_sessions_report(
         with pd.ExcelWriter(stream, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Report')
         response = StreamingResponse(iter([stream.getvalue()]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        response.headers["Content-Disposition"] = f"attachment; filename={filename}.xlsx"
+        response.headers["Content-Disposition"] = build_content_disposition_attachment(f"{filename}.xlsx")
         return response
 
     elif format == "pdf":
@@ -381,7 +391,7 @@ def export_sessions_report(
         doc.build(elements)
         
         response = StreamingResponse(iter([stream.getvalue()]), media_type="application/pdf")
-        response.headers["Content-Disposition"] = f"attachment; filename={filename}.pdf"
+        response.headers["Content-Disposition"] = build_content_disposition_attachment(f"{filename}.pdf")
         return response
 
     else:
