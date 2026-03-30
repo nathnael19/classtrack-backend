@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, DateTime, Enum, Float, String
+from sqlalchemy import Column, Integer, ForeignKey, DateTime, Enum, Float, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 import enum
 import datetime
@@ -16,6 +16,9 @@ class VerificationMethod(enum.Enum):
 
 class Attendance(Base):
     __tablename__ = "attendances"
+    __table_args__ = (
+        UniqueConstraint("student_id", "session_id", name="uq_attendances_student_session"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("users.id"))
