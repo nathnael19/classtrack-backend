@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -12,10 +12,12 @@ router = APIRouter()
 
 @router.get("/me", response_model=List[DeviceFingerprintOut])
 def get_my_devices(
+    skip: int = 0,
+    limit: int = Query(100, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(DeviceFingerprint).filter(DeviceFingerprint.student_id == current_user.id).all()
+    return db.query(DeviceFingerprint).filter(DeviceFingerprint.student_id == current_user.id).offset(skip).limit(limit).all()
 
 @router.post("/", response_model=DeviceFingerprintOut, status_code=status.HTTP_201_CREATED)
 def register_device(
