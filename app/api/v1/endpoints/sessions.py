@@ -3,8 +3,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from collections import deque
+import hmac
+import hashlib
+import time
 
-from ....db.session import get_db
+from ....db.session import get_db, SessionLocal
 from ....models.class_session import ClassSession, SessionStatus
 from ....models.attendance import Attendance, AttendanceStatus
 from ....models.course import Course
@@ -17,6 +21,13 @@ from sqlalchemy import select, and_, or_
 from ....models.enrollment import enrollment_association
 
 router = APIRouter()
+
+_ws_connect_log: dict[str, deque] = {}
+_ws_message_log: dict[int, deque] = {}
+
+# Limits are intentionally conservative to prevent real-time abuse.
+MAX_WS_CONNECTIONS_PER_MINUTE = 10
+MAX_WS_MESSAGES_PER_MINUTE = 60
 
 def apply_student_session_filter(query, current_user, db):
     enrollments = db.execute(
@@ -40,15 +51,94 @@ def apply_student_session_filter(query, current_user, db):
 
 @router.websocket("/{session_id}/ws")
 async def session_websocket(websocket: WebSocket, session_id: int):
-    await manager.connect(websocket, session_id)
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+
+    # Rate-limit websocket connection attempts per client IP.
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    now = time.time()
+    dq = _ws_connect_log.get(client_ip)
+    if dq is None:
+        dq = deque()
+        _ws_connect_log[client_ip] = dq
+
+    cutoff = now - 60
+    while dq and dq[0] < cutoff:
+        dq.popleft()
+
+    if len(dq) >= MAX_WS_CONNECTIONS_PER_MINUTE:
+        await websocket.close(code=1008)
+        return
+    dq.append(now)
+
+    db = SessionLocal()
     try:
-        while True:
-            # Keep connection alive, listen for any client messages (optional)
-            await websocket.receive_text()
-    except Exception:
-        pass
+        # Authenticate websocket client.
+        try:
+            current_user = get_current_user(db=db, token=token)
+        except HTTPException:
+            await websocket.close(code=1008)
+            return
+
+        # Authorize websocket subscription to this session feed.
+        session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
+        if not session or not session.course:
+            await websocket.close(code=1008)
+            return
+
+        course = session.course
+        is_admin = current_user.role == UserRole.admin
+        is_lecturer = (
+            course.lecturer_id == current_user.id
+            or any(l.id == current_user.id for l in course.lecturers)
+        )
+
+        # Student must be enrolled in the course.
+        is_student = (
+            db.execute(
+                select(enrollment_association.c.user_id).where(
+                    enrollment_association.c.user_id == current_user.id,
+                    enrollment_association.c.course_id == course.id,
+                )
+            ).first()
+            is not None
+        )
+
+        if not (is_admin or is_lecturer or is_student):
+            await websocket.close(code=1008)
+            return
+
+        # Only store authorized connections.
+        msg_log_key = id(websocket)
+        msg_dq = _ws_message_log.get(msg_log_key)
+        if msg_dq is None:
+            msg_dq = deque()
+            _ws_message_log[msg_log_key] = msg_dq
+
+        await manager.connect(websocket, session_id)
+        try:
+            while True:
+                # Keep connection alive, listen for any client messages (optional)
+                await websocket.receive_text()
+
+                # Rate-limit inbound messages to reduce flooding.
+                now = time.time()
+                cutoff = now - 60
+                while msg_dq and msg_dq[0] < cutoff:
+                    msg_dq.popleft()
+                if len(msg_dq) >= MAX_WS_MESSAGES_PER_MINUTE:
+                    await websocket.close(code=1008)
+                    break
+                msg_dq.append(now)
+        except Exception:
+            pass
+        finally:
+            manager.disconnect(websocket, session_id)
+            _ws_message_log.pop(msg_log_key, None)
     finally:
-        manager.disconnect(websocket, session_id)
+        db.close()
 
 @router.get("/{session_id}/students", response_model=List[SessionStudentOut])
 def get_session_students(
@@ -243,6 +333,24 @@ def get_active_lecturer_session(
 
     if not session:
         raise HTTPException(status_code=404, detail="No active session found")
+
+    # Provide a short-lived QR token for the lecturer live view.
+    # Important: do NOT return the secret seed (`qr_code_content`) to clients.
+    rotation_interval = 120  # 2 minutes
+    timestamp = int(time.time())
+    time_step = timestamp // rotation_interval
+
+    def generate_token(step: int, secret: str) -> str:
+        h = hmac.new(secret.encode(), str(step).encode(), hashlib.sha256)
+        hex_digest = h.hexdigest().upper()
+        return hex_digest[:8]
+
+    active_qr_token = generate_token(time_step, session.qr_code_content)
+    expires_in_seconds = (time_step + 1) * rotation_interval - timestamp
+
+    # Attach computed fields for the response model.
+    session.active_qr_token = active_qr_token
+    session.active_qr_token_expires_in_seconds = max(0, expires_in_seconds)
     return session
 
 @router.post("/", response_model=ClassSessionOut, status_code=status.HTTP_201_CREATED)
